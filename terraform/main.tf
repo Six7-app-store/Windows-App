@@ -119,9 +119,18 @@ data "openstack_images_image_v2" "image" {
   most_recent = true
 }
 
-# External network nur nötig, wenn Floating IP aktiviert ist
+# External network nur noetig, wenn Floating IP aktiviert ist - und nur
+# dann wird es auch abgefragt.
+#
+# Ohne count laeuft die Abfrage bedingungslos und bricht den Plan ab, wenn
+# das Netz im Projekt nicht existiert: "Your query returned no results".
+# Genau das ist passiert - der Standardwert "DHBW" stammt aus der
+# Ubuntu-App, im Projekt ma_wwi_24sea_appstore_g1 gibt es nur NAT und
+# DHBWV6. Da enable_floating_ip hier ohnehin false ist, wurde ein Netz
+# gesucht, das niemand braucht.
 data "openstack_networking_network_v2" "external" {
-  name = var.floating_ip_pool
+  count = local.enable_floating_ip ? 1 : 0
+  name  = var.floating_ip_pool
 }
 
 # -----------------------------------------------------------------------------
@@ -172,7 +181,7 @@ resource "openstack_compute_instance_v2" "user_vm" {
 # -----------------------------------------------------------------------------
 resource "openstack_networking_floatingip_v2" "fip" {
   count = local.enable_floating_ip ? local.vm_count : 0
-  pool  = data.openstack_networking_network_v2.external.name
+  pool  = data.openstack_networking_network_v2.external[0].name
 }
 
 # Warten bis die VMs vollständig gebootet sind
