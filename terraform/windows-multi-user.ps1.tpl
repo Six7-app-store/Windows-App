@@ -76,7 +76,83 @@ foreach ($sid in @('S-1-5-32-555', 'S-1-5-32-544')) {
 }
 
 # -----------------------------------------------------------------------------
-# 3. Remotedesktop einschalten
+# 3. IPv6 aus den Metadaten setzen
+# -----------------------------------------------------------------------------
+# Ohne diesen Abschnitt ist die VM von aussen nicht erreichbar.
+#
+# Das Netz vergibt IPv6 per dhcpv6-stateful. Der DHCPv6-Client von Windows
+# holt sich die Adresse hier nachweislich nicht: eine Testinstanz am
+# 19.09.2026 hatte die in Neutron reservierte Adresse nie auf der Karte und
+# antwortete nicht einmal auf Ping, waehrend eine Linux-VM im selben Netz
+# einwandfrei lief. cloudbase-inits NetworkConfigPlugin benennt die Karte
+# nur um und setzt die MTU - die Adressvergabe ueberlaesst es dem
+# DHCP-Client.
+#
+# Die Adresse steht aber in den Metadaten, samt Gateway. Also wird sie von
+# dort gelesen und statisch gesetzt. Der Wert muss exakt der von Neutron
+# reservierte sein: die Port-Security verwirft Pakete mit jeder anderen
+# Absenderadresse.
+Write-Log "Konfiguriere IPv6 aus den Metadaten"
+try {
+    $netzDaten = Invoke-RestMethod -Uri 'http://169.254.169.254/openstack/latest/network_data.json' `
+                                   -TimeoutSec 20 -UseBasicParsing
+
+    foreach ($netz in $netzDaten.networks) {
+        if ($netz.type -notlike 'ipv6*') { continue }
+        if ([string]::IsNullOrEmpty($netz.ip_address)) {
+            Write-Log "  $($netz.id): keine Adresse in den Metadaten"
+            continue
+        }
+
+        # Die Karte wird ueber die MAC gesucht, nicht ueber den Namen:
+        # cloudbase-init benennt sie in "tap<port-id>" um, und der Name
+        # ist bei jeder Instanz ein anderer.
+        $verbindung = $netzDaten.links | Where-Object { $_.id -eq $netz.link } | Select-Object -First 1
+        $mac = $verbindung.ethernet_mac_address
+        $karte = Get-NetAdapter | Where-Object { ($_.MacAddress -replace '-', ':') -ieq $mac } | Select-Object -First 1
+        if ($null -eq $karte) {
+            Write-Log "  keine Netzwerkkarte mit MAC $mac gefunden"
+            continue
+        }
+
+        # Praefixlaenge aus der Netzmaske: ffff:ffff:ffff:ffff:: sind
+        # 16 Stellen zu je 4 Bit, also /64.
+        $praefix = 64
+        if (-not [string]::IsNullOrEmpty($netz.netmask)) {
+            $stellen = ($netz.netmask -replace ':', '').ToCharArray() | Where-Object { $_ -eq 'f' }
+            if ($stellen.Count -gt 0) { $praefix = $stellen.Count * 4 }
+        }
+
+        $schonDa = Get-NetIPAddress -InterfaceIndex $karte.ifIndex -AddressFamily IPv6 -ErrorAction SilentlyContinue |
+                   Where-Object { $_.IPAddress -eq $netz.ip_address }
+        if ($null -eq $schonDa) {
+            New-NetIPAddress -InterfaceIndex $karte.ifIndex `
+                             -IPAddress $netz.ip_address `
+                             -PrefixLength $praefix -ErrorAction Stop | Out-Null
+            Write-Log "  $($netz.ip_address)/$praefix auf '$($karte.Name)' gesetzt"
+        } else {
+            Write-Log "  $($netz.ip_address) war schon gesetzt"
+        }
+
+        $gateway = ($netz.routes | Where-Object { $_.network -eq '::' } | Select-Object -First 1).gateway
+        if (-not [string]::IsNullOrEmpty($gateway)) {
+            $route = Get-NetRoute -InterfaceIndex $karte.ifIndex -DestinationPrefix '::/0' -ErrorAction SilentlyContinue
+            if ($null -eq $route) {
+                New-NetRoute -InterfaceIndex $karte.ifIndex -DestinationPrefix '::/0' `
+                             -NextHop $gateway -ErrorAction Stop | Out-Null
+                Write-Log "  Standardroute ueber $gateway gesetzt"
+            } else {
+                Write-Log "  Standardroute war schon da"
+            }
+        }
+    }
+} catch {
+    Write-Log "IPv6-Konfiguration fehlgeschlagen: $($_.Exception.Message)"
+    Write-Log "Die VM ist dann nur ueber IPv4 im Projektnetz erreichbar."
+}
+
+# -----------------------------------------------------------------------------
+# 4. Remotedesktop einschalten
 # -----------------------------------------------------------------------------
 Write-Log "Schalte Remotedesktop ein"
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -101,7 +177,7 @@ Set-Service -Name TermService -StartupType Automatic -ErrorAction SilentlyContin
 Start-Service -Name TermService -ErrorAction SilentlyContinue
 
 # -----------------------------------------------------------------------------
-# 4. Kursmaterial im Profil bereitstellen
+# 5. Kursmaterial im Profil bereitstellen
 # -----------------------------------------------------------------------------
 # Das Material liegt im Image unter C:\Users\Default (das Windows-Gegenstueck
 # zu /etc/skel). Windows kopiert es beim ersten Anmelden in das neue Profil.
@@ -114,7 +190,7 @@ if (Test-Path 'C:\Users\Default\Desktop\Windows-Kurs') {
 }
 
 # -----------------------------------------------------------------------------
-# 5. Nachweis fuer die Fehlersuche
+# 6. Nachweis fuer die Fehlersuche
 # -----------------------------------------------------------------------------
 Write-Log "--- Ergebnis ---"
 $user = Get-LocalUser -Name '${username}' -ErrorAction SilentlyContinue

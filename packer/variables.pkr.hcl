@@ -7,7 +7,7 @@ variable "image_name" {
 variable "networks" {
   type        = list(string)
   description = "@openstack:network:id:list Build-Netzwerke"
-  default     = ["4971e080-966d-485e-a161-3e2b7fefad53"]
+  default     = ["9b579624-d844-4df3-b38d-89978b31d37d"]
 }
 
 # ACHTUNG: Diese Gruppe muss eingehend TCP 5986 erlauben.
@@ -20,7 +20,7 @@ variable "networks" {
 variable "security_groups" {
   type        = list(string)
   description = "@openstack:security_group:id:list Build-Security-Groups (muss TCP 5986 erlauben)"
-  default     = ["4ffaf007-df66-4250-9118-1bd99378d34a"]
+  default     = ["693004c0-0935-41a2-b981-08c50d67b69d"]
 }
 
 variable "source_image_name" {

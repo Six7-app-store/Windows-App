@@ -81,7 +81,8 @@ dort *Remotedesktopbenutzer* und *Administratoren*.
 | VMs pro Team | — |
 | VMs pro Nutzer | **1** |
 | Flavor | `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
-| Floating IP | Nein — Adressen in DHBWv4 sind öffentlich geroutet |
+| Netz | `DHBWV6` — doppelstapelig, IPv4 `10.200.0.0/19` und IPv6 |
+| Floating IP | Nein — die Instanz ist über ihre IPv6-Adresse direkt erreichbar |
 
 Die `gp1`-Familie scheidet aus: das Basis-Image verlangt `min_disk` 64 GB,
 `gp1` liefert durchgehend 10 GB. `win11.medium` bootet außerdem ohne
@@ -97,10 +98,16 @@ zwischen „läuft" und „läuft nicht" ausmacht.
 | `shared_secgroup_id` | ID der gemeinsamen Security Group | Ja |
 | `max_users` | Obergrenze gleichzeitiger Nutzer-VMs (Standard 12) | Nein |
 
-> **Die Security Group muss TCP 3389 erlauben** (RDP), und die
-> **Build**-Security-Group zusätzlich TCP 5986 (WinRM). Die Ubuntu-App kommt
-> mit Port 22 aus; ist 5986 zu, hängt der Packer-Build bis zum Timeout und
-> meldet nur `waiting for WinRM`, ohne die Ursache zu nennen.
+> **Die voreingestellte Security Group heißt `windows-app`** und erlaubt TCP
+> 3389 (RDP für die Studierenden) sowie TCP 5986 (WinRM, nur für den
+> Packer-Build) — beides aus `2001:7c0:1b20::/48` und `141.72.0.0/16`, also
+> aus dem Campusnetz. **Studierende brauchen damit das DHBW-VPN.** Das ist
+> Absicht: RDP mit Passwort-Anmeldung offen ins Internet zu stellen, ist einer
+> der meistgenutzten Angriffswege überhaupt.
+>
+> Ist 5986 zu, hängt der Packer-Build bis zum Timeout und meldet nur
+> `waiting for WinRM`, ohne die Ursache zu nennen. Die Ubuntu-App kommt mit
+> Port 22 aus, weil Packer dort über SSH provisioniert.
 
 ## Deployment-Dauer
 
@@ -134,15 +141,22 @@ Ehrlichkeitshalber, weil das für die Bewertung des Codes zählt:
   `windows-multi-user.ps1.tpl` ein eigenes Konto an, statt das vorhandene zu
   benutzen.
 
+- **Windows holt sich seine IPv6-Adresse per DHCPv6 nicht.** Eine Testinstanz
+  hatte die in Neutron reservierte Adresse nie auf der Karte und antwortete
+  nicht einmal auf Ping, während eine Linux-VM im selben Netz einwandfrei
+  lief. `NetworkConfigPlugin` benennt die Karte nur um und setzt die MTU.
+  Das Startskript liest die Adresse deshalb aus `network_data.json` und setzt
+  sie selbst — die Metadaten enthalten sie samt Gateway.
+
 **Nicht erprobt:**
 
 - Ein vollständiger Packer-Build dieses Images
 - Ein `terraform apply` mit echten Nutzern
 - Der RDP-Zugang durch einen Studierenden
+- Ob die selbst gesetzte IPv6-Adresse die Instanz tatsächlich erreichbar macht
 
-**Ein bekanntes Hindernis:** Im IPv6-Netz `DHBWV6` (Adressvergabe per
-`dhcpv6-stateful`) holt sich Windows seine IPv6-Adresse nicht — die Instanz
-ist dort über IPv6 nicht erreichbar, nicht einmal per Ping. Diese App ist
-deshalb auf das IPv4-Netz ausgelegt, das auch die Ubuntu-App benutzt; dort
-hat eine Testinstanz per DHCP problemlos eine Adresse bekommen. Wer
-`network_uuid` auf ein IPv6-only-Netz umstellt, läuft in dieses Problem.
+**Ein erster Deploy-Versuch am 19.09.2026 ist gescheitert**, und zwar an
+Voreinstellungen, die aus der Ubuntu-App übernommen und nicht gegen diesen
+Tenant geprüft waren: `Unable to find security_group with name or id
+'4ffaf007-...'`. Netz- und Security-Group-IDs sind seither die des Projekts
+`ma_wwi_24sea_appstore_g1`.
