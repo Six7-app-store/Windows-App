@@ -180,3 +180,14 @@ aktuelle LTS-Fassung, und die tatsächlich installierten Versionen stehen am
 Ende des Build-Protokolls. Außerdem sind die Pakete jetzt in Pflicht
 (Python, Node, Git) und Kür (Editoren, Browser) geteilt — ein fehlendes
 Kür-Paket wirft keinen halbstündigen Build mehr weg.
+
+**Ein vierter Versuch lief acht Minuten und scheiterte am Protokollblock.**
+`choco list --local-only` — ein Schalter, den Chocolatey seit Version 2.0 nicht
+mehr kennt, während das Image 2.7.4 mitbringt. Der Aufruf endete mit Code 1.
+Weil `python`, `node` und `git` in derselben Sitzung noch nicht im `PATH`
+standen (Chocolatey warnt ausdrücklich davor), blieb `$LASTEXITCODE` auf dieser
+1 stehen, und Packers Wrapper beendet das Skript mit `exit $LastExitCode`.
+Eine reine Auskunft hat damit einen vollständig erfolgreichen Build verworfen.
+
+Beide Skripte enden jetzt mit einem ausdrücklichen `exit 0`, und der
+Protokollblock lädt vorher den `PATH` aus der Maschinen-Umgebung nach.

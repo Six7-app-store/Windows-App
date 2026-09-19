@@ -269,18 +269,46 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
 
 Write-Output "=== Provisioning beendet ==="
 Write-Output ""
-# Welche Fassungen tatsaechlich im Image liegen. Bei nodejs-lts gibt es
-# keine Festlegung mehr, also ist das hier die einzige Stelle, an der
-# die Node-Version nachvollziehbar wird.
-Write-Output "Installierte Pakete:"
-& choco list --local-only --limit-output
-Write-Output ""
-foreach ($werkzeug in @("python --version", "node --version", "git --version")) {
-    try {
-        $teile = $werkzeug -split ' '
-        $ausgabe = & $teile[0] $teile[1] 2>&1
-        Write-Output "  $($teile[0]): $ausgabe"
-    } catch {
-        Write-Output "  $($werkzeug): nicht aufrufbar ($($_.Exception.Message))"
+
+# -----------------------------------------------------------------------------
+# Protokoll: was liegt tatsaechlich im Image?
+# -----------------------------------------------------------------------------
+# Alles ab hier ist reine Auskunft. Es darf den Build unter keinen Umstaenden
+# zum Scheitern bringen - am Ende steht deshalb ein ausdrueckliches exit 0.
+#
+# Der Grund ist Erfahrung: hier stand "choco list --local-only", ein Schalter,
+# den Chocolatey seit Version 2.0 nicht mehr kennt (das Image bringt 2.7.4
+# mit). Der Aufruf endete mit Code 1. Weil die drei Werkzeuge in dieser
+# Sitzung noch nicht im PATH standen und ihre Aufrufe im catch landeten, blieb
+# $LASTEXITCODE auf dieser 1 stehen - und Packers Wrapper macht am Ende
+# "exit $LastExitCode". Ein Protokollblock hat so einen vollstaendig
+# erfolgreichen Build von acht Minuten verworfen.
+try {
+    # Chocolatey setzt PATH in der Maschinen-Umgebung, die laufende Sitzung
+    # sieht das nicht. Ohne diese Zeile sind python, node und git hier
+    # unbekannt, obwohl sie installiert sind.
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('Path', 'User')
+
+    Write-Output "Installierte Pakete:"
+    # Seit Chocolatey 2.0 listet "choco list" ohnehin nur lokale Pakete.
+    & choco list --limit-output
+
+    Write-Output ""
+    Write-Output "Versionen:"
+    foreach ($werkzeug in @('python', 'node', 'git')) {
+        $befehl = Get-Command $werkzeug -ErrorAction SilentlyContinue
+        if ($null -eq $befehl) {
+            Write-Output "  $werkzeug : nicht im PATH"
+            continue
+        }
+        $ausgabe = & $werkzeug --version 2>&1 | Select-Object -First 1
+        Write-Output "  $werkzeug : $ausgabe"
     }
+} catch {
+    Write-Output "Protokoll unvollstaendig: $($_.Exception.Message)"
 }
+
+# Der Build war erfolgreich, wenn er bis hierher gekommen ist. Was oben
+# wirklich schiefgehen kann, wirft eine Ausnahme oder ruft throw auf.
+exit 0

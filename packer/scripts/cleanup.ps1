@@ -87,3 +87,11 @@ Remove-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
 Remove-Item -Path 'C:\Users\packer' -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Output "=== Aufraeumen beendet ==="
+
+# Ausdruecklich, aus demselben Grund wie in provision.ps1: Packers Wrapper
+# beendet das Skript mit "exit $LastExitCode". In diesem Skript laufen
+# fsutil und cipher, die beide ungleich null zurueckgeben koennen, ohne
+# dass etwas Wichtiges schiefgegangen waere - das Nullen des freien
+# Speichers ist Kosmetik fuer die Abbildgroesse. Alles, was hier wirklich
+# zaehlt, laeuft ueber Cmdlets und wuerde eine Ausnahme werfen.
+exit 0
