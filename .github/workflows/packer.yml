@@ -1,0 +1,82 @@
+# GitHub Actions Workflow: Packer checks
+# Prueft die Packer-Vorlage bei jedem Push, Pull Request und Release:
+# - packer init      -> laedt die benoetigten Plugins
+# - packer fmt       -> prueft die Formatierung
+# - packer validate  -> prueft die Vorlage inhaltlich
+#
+# Gebaut wird hier nicht. Ein Windows-Build dauert 25 bis 40 Minuten und
+# braucht Zugang zur OpenStack-API der DHBW, die von einem gehosteten
+# GitHub-Runner nicht erreichbar ist. Den Build stoesst der Worker an.
+
+name: 'Packer'
+
+on:
+  push:
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  packer:
+    name: 'Packer'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup `packer` (local action)
+      uses: ./.github/actions
+      id: setup_packer
+      with:
+        version: '1.14.3'
+
+    - name: Print `packer` version
+      run: packer version
+
+    - name: Packer Init
+      run: packer init packer
+
+    - name: Packer Format
+      run: packer fmt -check packer
+
+    # -syntax-only ist hier keine Bequemlichkeit, sondern noetig: ein volles
+    # `packer validate` baut den Builder auf und meldet sich dabei bei
+    # Keystone an. Die OpenStack-API der DHBW ist von einem gehosteten
+    # GitHub-Runner aus nicht erreichbar, der Schritt liefe also immer in
+    # einen Timeout - nachgestellt am 19.09.2026, der Fehler lautet
+    # "dial tcp 141.72.5.140:5000: connection attempt failed".
+    #
+    # Geprueft wird damit trotzdem das Wesentliche: HCL-Syntax, aufloesbare
+    # Variablen, vorhandene templatefile()-Vorlagen und richtige Pfade zu
+    # den Skripten.
+    - name: Packer Validate (Syntax)
+      run: packer validate -syntax-only packer
+
+    # Die Vorlage laedt drei PowerShell-Dateien nach. Fehlt eine davon,
+    # faellt das sonst erst 30 Minuten in den Build hinein auf.
+    - name: Skripte vorhanden?
+      run: |
+        set -euo pipefail
+        fehlt=0
+        for datei in \
+          packer/scripts/bootstrap.ps1.tpl \
+          packer/scripts/provision.ps1 \
+          packer/scripts/cleanup.ps1
+        do
+          if [ ! -f "$datei" ]; then
+            echo "::error::$datei fehlt"
+            fehlt=1
+          else
+            echo "ok: $datei"
+          fi
+        done
+        exit $fehlt

@@ -1,0 +1,125 @@
+# GitHub Actions Workflow: Terraform checks
+# Prueft die Terraform-Konfiguration bei jedem Push, Pull Request und Release:
+# init (ohne Backend), fmt, validate, TFLint und tfsec.
+#
+# Angewendet wird hier nichts. Die OpenStack-API der DHBW ist von einem
+# gehosteten GitHub-Runner nicht erreichbar; das Ausrollen uebernimmt der
+# Worker der App-Store-Plattform.
+
+name: 'Terraform'
+
+on:
+  push:
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      run: terraform init -backend=false
+      working-directory: terraform
+
+    - name: Terraform Format
+      run: terraform fmt -check
+      working-directory: terraform
+
+    - name: Terraform Validate
+      run: terraform validate
+      working-directory: terraform
+
+    - name: Setup TFLint
+      uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: latest
+
+    - name: Init TFLint
+      run: tflint --init
+      working-directory: terraform
+
+    - name: Run TFLint
+      run: tflint --recursive
+      working-directory: terraform
+
+    - name: Run tfsec
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        working_directory: terraform
+        soft_fail: false
+
+    # Die beiden PowerShell-Vorlagen werden per templatefile() gerendert und
+    # unterliegen damit der Template-Syntax von HCL.
+    #
+    # Die %{-Regel gilt AUCH in PowerShell-Kommentaren: Terraform kennt keine
+    # Kommentare, es sieht nur Text. Eine Kommentarzeile, die vor %{ warnt und
+    # dabei %{ schreibt, bricht das Rendern genauso ab wie Code - genau dieser
+    # Fehler steckte in der ersten Fassung dieser App.
+    #
+    # `terraform validate` faengt das heute mit ab, weil main.tf die Vorlage
+    # aufruft. Diese Schritte pruefen sie unabhaengig davon und benennen den
+    # Fehler klarer als die Meldung "Invalid character" es tut.
+    - name: PowerShell-Vorlagen pruefen
+      run: |
+        set -euo pipefail
+
+        pruefe() {
+          local vorlage="$1"
+          local erlaubt="$2"
+          echo "--- $vorlage"
+
+          if [ ! -f "$vorlage" ]; then
+            echo "::error::$vorlage fehlt"
+            return 1
+          fi
+
+          if ! head -1 "$vorlage" | grep -q '^#ps1_sysnative'; then
+            echo "::error::$vorlage muss mit #ps1_sysnative beginnen, sonst fuehrt cloudbase-init sie nicht aus."
+            return 1
+          fi
+
+          # Erst die Fluchtformen %% und $$ durch Steuerzeichen ersetzen; was
+          # danach noch als %{ oder ${ dasteht, meint Terraform ernst. Das
+          # kommt ohne `grep -P` aus, das je nach Locale fehlt.
+          local entschaerft
+          entschaerft=$(sed -e 's/%%/\x01/g' -e 's/\$\$/\x02/g' "$vorlage")
+
+          if printf '%s\n' "$entschaerft" | grep -n '%{'; then
+            echo "::error::$vorlage enthaelt ein unescaptes %{ (Zeilen oben). Terraform liest das als Direktive - auch im Kommentar. Schreibe %%{ oder ForEach-Object aus."
+            return 1
+          fi
+
+          local unbekannt
+          unbekannt=$(printf '%s\n' "$entschaerft" \
+                      | grep -o '\${[^}]*}' \
+                      | sort -u \
+                      | grep -vE "$erlaubt" || true)
+          if [ -n "$unbekannt" ]; then
+            echo "::error::$vorlage interpoliert Namen, die nicht uebergeben werden:"
+            echo "$unbekannt"
+            echo "Fuer ein literales Dollar-Klammer-Paar zwei Dollarzeichen schreiben."
+            return 1
+          fi
+
+          echo "    in Ordnung"
+        }
+
+        pruefe terraform/windows-multi-user.ps1.tpl '^\$\{(username|password|team|email)\}$'
+        pruefe packer/scripts/bootstrap.ps1.tpl     '^\$\{build_password\}$'

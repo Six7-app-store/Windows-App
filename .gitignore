@@ -1,0 +1,14 @@
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+
+# Packer files
+packer_cache/
+*.box
+*.pkrvars.hcl
+
+# OS files
+.DS_Store

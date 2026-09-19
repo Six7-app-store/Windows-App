@@ -1,0 +1,148 @@
+# Windows 11 Desktop App
+
+Eine Windows-Lernumgebung für Hochschulkurse. Jeder Studierende bekommt eine
+eigene Windows-11-VM mit RDP-Zugang und ein vorgefertigtes Kursverzeichnis mit
+Übungsaufgaben und einer PowerShell-Kurzreferenz.
+
+Das Gegenstück zur [Ubuntu Terminal App](../Ubuntu-App). Gleicher Vertrag,
+gleiche Ausgaben — drei Dinge sind aber anders, und die sind es wert, vorher
+gelesen zu werden.
+
+## Was anders ist als bei Ubuntu
+
+| | Ubuntu-App | Windows-App |
+|---|---|---|
+| VMs | **1**, von allen geteilt | **1 pro Nutzer** |
+| Zugang | SSH, Port 22 | RDP, Port 3389 |
+| Provisionierung | cloud-init | cloudbase-init (PowerShell) |
+| Flavor | `gp1.small` | `win11.medium` |
+| Packer-Verbindung | SSH | WinRM über HTTPS, Port 5986 |
+
+**Warum eine VM pro Nutzer?** Windows 11 ist ein Client-Betriebssystem und
+lässt nur eine interaktive Sitzung gleichzeitig zu. Auf einer geteilten VM
+würden sich die Studierenden gegenseitig aus der Sitzung werfen. Das ist keine
+Konfigurationsfrage, sondern eine Lizenzbeschränkung von Windows Client.
+
+**Das kostet Kontingent.** Jede VM belegt 2 vCPU und 8 GB RAM. Bei einem
+RAM-Kontingent von 128 GB sind das höchstens 16 VMs, und davon braucht das
+Projekt einen Teil für anderes. `max_users` steht deshalb auf **12** und bricht
+den Apply mit einer erklärenden Meldung ab, statt mitten im Anlegen an einem
+Quota-Fehler zu scheitern.
+
+## Vorinstallierte Software
+
+- Python 3 (inkl. pip)
+- Node.js 24 (inkl. npm)
+- Git, Visual Studio Code, Notepad++, 7-Zip, Chrome
+- Chocolatey als Paketmanager
+
+## Kursverzeichnis
+
+Nach der ersten Anmeldung liegt auf dem Desktop:
+
+    Desktop\Windows-Kurs\
+    ├── LIES_MICH.txt              ← PowerShell-Kurzreferenz, mit Linux-Vergleich
+    ├── beispieldaten\
+    │   ├── studenten.csv          ← CSV für Übungen mit Import-Csv, Where-Object
+    │   └── server.log             ← Logdatei für Übungen mit Select-String
+    └── uebungen\
+        ├── 01-explorer-und-pfade\
+        ├── 02-powershell-grundlagen\
+        ├── 03-dateien-und-rechte\
+        ├── 04-prozesse-und-dienste\
+        └── 05-skripte\
+
+Das Material liegt im Image unter `C:\Users\Default` — dem Windows-Gegenstück
+zu `/etc/skel`. Windows kopiert es beim ersten Anmelden in das neue Profil.
+
+Die Kurzreferenz stellt jedem PowerShell-Befehl bewusst das Linux-Äquivalent
+gegenüber. Wer den Ubuntu-Kurs kennt, sucht genau das.
+
+## User-Management
+
+- **Ein Account und eine eigene VM pro Nutzer**, abgeleitet aus der
+  E-Mail-Adresse (`alice.smith@dhbw.de` → `alicesmith`)
+- Benutzernamen werden auf **20 Zeichen gekürzt** — Windows legt längere
+  lokale Konten nicht an
+- Jeder Nutzer erhält ein automatisch generiertes, zufälliges Passwort
+- Mitglied in *Remotedesktopbenutzer* und *Administratoren* (analog zu `sudo`
+  bei der Ubuntu-App)
+- RDP-Login mit Benutzername und Passwort
+
+Die Gruppen werden über ihre SID zugewiesen (`S-1-5-32-555`, `S-1-5-32-544`),
+nicht über den Namen: das Basis-Image ist deutschsprachig, die Gruppen heißen
+dort *Remotedesktopbenutzer* und *Administratoren*.
+
+## VM-Deployment
+
+| | |
+|---|---|
+| VMs gesamt | **1 pro Nutzer** |
+| VMs pro Team | — |
+| VMs pro Nutzer | **1** |
+| Flavor | `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
+| Floating IP | Nein — Adressen in DHBWv4 sind öffentlich geroutet |
+
+Die `gp1`-Familie scheidet aus: das Basis-Image verlangt `min_disk` 64 GB,
+`gp1` liefert durchgehend 10 GB. `win11.medium` bootet außerdem ohne
+Cinder-Volume, was bei einem Ausfall des Volume-Dienstes den Unterschied
+zwischen „läuft" und „läuft nicht" ausmacht.
+
+## Konfigurierbare Variablen
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `network_uuid` | UUID des internen Netzwerks | Ja |
+| `floating_ip_pool` | Name des External Networks für Floating IPs | Ja |
+| `shared_secgroup_id` | ID der gemeinsamen Security Group | Ja |
+| `max_users` | Obergrenze gleichzeitiger Nutzer-VMs (Standard 12) | Nein |
+
+> **Die Security Group muss TCP 3389 erlauben** (RDP), und die
+> **Build**-Security-Group zusätzlich TCP 5986 (WinRM). Die Ubuntu-App kommt
+> mit Port 22 aus; ist 5986 zu, hängt der Packer-Build bis zum Timeout und
+> meldet nur `waiting for WinRM`, ohne die Ursache zu nennen.
+
+## Deployment-Dauer
+
+| Schritt | Dauer (ca.) |
+|---|---|
+| Packer Image Build | 25–40 min |
+| Terraform apply | 10–20 min |
+| **Gesamt (Erstdeployment)** | **35–60 min** |
+
+Deutlich länger als bei Ubuntu, und das hat handfeste Gründe: das Basis-Image
+ist 80 GB groß und wird beim ersten Start aus dem Objektspeicher gelesen,
+danach läuft die Windows-Gerätekonfiguration. Die Timeouts in `main.tf` stehen
+deshalb auf 30 Minuten statt auf 15.
+
+Bei Folge-Deployments (Image bereits gebaut) nur Terraform: **10–20 min**.
+
+## Stand der Erprobung
+
+Ehrlichkeitshalber, weil das für die Bewertung des Codes zählt:
+
+**Nachgewiesen** an einer Testinstanz des Basis-Images `Windows 11 25H2 (UEFI)`:
+
+- Das Image bootet auf `win11.medium` ohne Cinder-Volume
+- cloudbase-init läuft durch und führt `UserDataPlugin` aus — ein
+  mitgegebenes PowerShell-Skript wird tatsächlich ausgeführt
+- Das Skript kann Firewallregeln anlegen (`Enabled: True` im Konsolenlog)
+- cloudbase-init richtet einen WinRM-HTTPS-Listener ein — die Grundlage für
+  den Packer-Build
+- Das eingebaute `Administrator`-Konto ist deaktiviert und für die Anmeldung
+  unbrauchbar. Deshalb legen sowohl `bootstrap.ps1.tpl` als auch
+  `windows-multi-user.ps1.tpl` ein eigenes Konto an, statt das vorhandene zu
+  benutzen.
+
+**Nicht erprobt:**
+
+- Ein vollständiger Packer-Build dieses Images
+- Ein `terraform apply` mit echten Nutzern
+- Der RDP-Zugang durch einen Studierenden
+
+**Ein bekanntes Hindernis:** Im IPv6-Netz `DHBWV6` (Adressvergabe per
+`dhcpv6-stateful`) holt sich Windows seine IPv6-Adresse nicht — die Instanz
+ist dort über IPv6 nicht erreichbar, nicht einmal per Ping. Diese App ist
+deshalb auf das IPv4-Netz ausgelegt, das auch die Ubuntu-App benutzt; dort
+hat eine Testinstanz per DHCP problemlos eine Adresse bekommen. Wer
+`network_uuid` auf ein IPv6-only-Netz umstellt, läuft in dieses Problem.
