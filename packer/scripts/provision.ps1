@@ -264,8 +264,20 @@ foreach ($name in $aufgaben.Keys) {
 # Uebung 5 ist das genau die Huerde, an der der Kurs sonst endet.
 # RemoteSigned bleibt dabei sicher: heruntergeladene Skripte brauchen weiter
 # eine Signatur, selbst geschriebene nicht.
+# Packer startet dieses Skript mit "powershell -executionpolicy bypass".
+# Das setzt eine Process-Richtlinie, und die ist spezifischer als
+# LocalMachine. Set-ExecutionPolicy setzt den Wert zwar ("wurden
+# erfolgreich aktualisiert"), meldet aber trotzdem eine SecurityException
+# wegen der Ueberschreibung - und mit ErrorActionPreference = Stop bricht
+# das den ganzen Build ab. Genau daran ist v1.0.4 gestorben.
+#
+# Der Registry-Weg schreibt denselben Wert ohne diese Meldung. Er gilt
+# ab dem naechsten Start, und die Nutzer-VMs starten ohnehin neu.
 Write-Output "Setze ExecutionPolicy auf RemoteSigned"
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+$pfad = 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell'
+New-Item -Path $pfad -Force | Out-Null
+Set-ItemProperty -Path $pfad -Name 'ExecutionPolicy' -Value 'RemoteSigned'
+Write-Output "  gesetzt (gilt ab dem naechsten Start)"
 
 Write-Output "=== Provisioning beendet ==="
 Write-Output ""
