@@ -208,7 +208,25 @@ if (Test-Path 'C:\Users\Default\Desktop\Windows-Kurs') {
 }
 
 # -----------------------------------------------------------------------------
-# 6. Nachweis fuer die Fehlersuche
+# 6. Build-Konto aus dem Abbild entfernen
+# -----------------------------------------------------------------------------
+# Das Abbild bringt das Konto 'packer' mit, mit dem Packer es gebaut hat.
+# Entfernen liess es sich dort nicht: Packer meldet sich damit bei jeder
+# WinRM-Anfrage an, ein Loeschen mitten im Build endet in einer 401.
+#
+# Hier ist der richtige Ort. cloudbase-init laeuft vor jeder Anmeldung, das
+# Konto ist also weg, bevor ein Studierender die VM zu sehen bekommt.
+$buildKonto = Get-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
+if ($null -ne $buildKonto) {
+    Remove-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
+    Remove-Item -Path 'C:\Users\packer' -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Log "Build-Konto 'packer' entfernt"
+} else {
+    Write-Log 'Kein Build-Konto vorhanden'
+}
+
+# -----------------------------------------------------------------------------
+# 7. Nachweis fuer die Fehlersuche
 # -----------------------------------------------------------------------------
 Write-Log "--- Ergebnis ---"
 $user = Get-LocalUser -Name '${username}' -ErrorAction SilentlyContinue

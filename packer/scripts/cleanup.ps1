@@ -68,23 +68,25 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# Build-Konto entfernen - als allerletztes
+# Das Build-Konto wird hier NICHT entfernt
 # -----------------------------------------------------------------------------
-# Das Passwort dieses Kontos steht im Build-Protokoll von Packer. Bliebe das
-# Konto im Image, haette jeder, der ein Build-Log sieht, einen
-# Administratorzugang auf saemtlichen Nutzer-VMs.
+# Es waere naheliegend, 'packer' als letzten Schritt zu loeschen. Genau das
+# stand hier, und genau daran ist der Build gescheitert:
 #
-# Die Reihenfolge ist nicht beliebig: dieses Skript laeuft selbst unter
-# 'packer'. Wird das Konto frueher entfernt, koennen die nachfolgenden
-# Schritte an ihrem Zugriffstoken scheitern. Deshalb steht es hier unten,
-# wenn nichts Wichtiges mehr kommt.
-Write-Output "Entferne Build-Konto 'packer'"
-Remove-Item -Path 'C:\Windows\Temp\packer-bootstrap.log' -Force -ErrorAction SilentlyContinue
-Remove-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
-# Das Profilverzeichnis ist waehrend der laufenden Sitzung gesperrt und
-# bleibt in der Regel stehen. Das ist hinnehmbar - es enthaelt keine
-# Zugangsdaten, nur die Reste einer Anmeldung.
-Remove-Item -Path 'C:\Users\packer' -Recurse -Force -ErrorAction SilentlyContinue
+#     Entferne Build-Konto 'packer'
+#     Retryable error: http response error: 401 - invalid content type
+#
+# Packer meldet sich mit diesem Konto bei JEDER WinRM-Anfrage neu an. Wer es
+# waehrend eines Provisioners entfernt, nimmt Packer die Zugangsdaten mitten
+# im Lauf weg - ein Deaktivieren oder ein neues Passwort haette dieselbe
+# Wirkung.
+#
+# Entfernt wird es deshalb beim ersten Start jeder Nutzer-VM, durch
+# windows-multi-user.ps1.tpl. Das laeuft ueber cloudbase-init und damit
+# garantiert, bevor sich ein Studierender anmelden kann.
+#
+# Im Abbild selbst bleibt das Konto bestehen. Sein Passwort wird bei jedem
+# Build neu erzeugt und steht nur im Build-Protokoll.
 
 Write-Output "=== Aufraeumen beendet ==="
 
