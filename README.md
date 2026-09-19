@@ -154,6 +154,15 @@ Ehrlichkeitshalber, weil das für die Bewertung des Codes zählt:
 - Ein `terraform apply` mit echten Nutzern
 - Der RDP-Zugang durch einen Studierenden
 - Ob die selbst gesetzte IPv6-Adresse die Instanz tatsächlich erreichbar macht
+- Die Softwareinstallation über Chocolatey (der Build kam nie so weit)
+
+**Ein zweiter Versuch am 19.09.2026 scheiterte an `401 - invalid content type`.**
+Ursache war weder Netz noch Zertifikat: `New-LocalUser` lehnte eine
+Beschreibung mit 54 Zeichen ab — bei lokalen Konten sind höchstens 48 erlaubt.
+Das Build-Konto entstand nie, der Rest des Skripts lief aber weiter und öffnete
+den WinRM-Port, sodass es nach einem Verbindungsproblem aussah. Beide Skripte
+prüfen jetzt nach dem Anlegen, ob das Konto existiert, und brechen sonst mit
+klarer Meldung ab.
 
 **Ein erster Deploy-Versuch am 19.09.2026 ist gescheitert**, und zwar an
 Voreinstellungen, die aus der Ubuntu-App übernommen und nicht gegen diesen

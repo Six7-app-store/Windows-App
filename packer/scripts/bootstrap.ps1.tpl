@@ -28,17 +28,31 @@ Write-Log "=== Bootstrap fuer den Packer-Build ==="
 
 $securePassword = ConvertTo-SecureString '${build_password}' -AsPlainText -Force
 
+# Description hat bei lokalen Konten ein hartes Limit von 48 Zeichen.
+# Eine laengere laesst New-LocalUser mit "Das Argument umfasst zu viele
+# Zeichen" scheitern - und weil ErrorActionPreference auf Continue steht,
+# laeuft das Skript danach weiter, oeffnet brav den WinRM-Port und
+# hinterlaesst kein Konto. Packer meldet dann "401 - invalid content
+# type", was nach einem Netz- oder Zertifikatsproblem aussieht und keines
+# ist. Genau so ist der Build am 19.09.2026 gescheitert.
 if ($null -eq (Get-LocalUser -Name 'packer' -ErrorAction SilentlyContinue)) {
     New-LocalUser -Name 'packer' `
                   -Password $securePassword `
                   -FullName 'Packer Build' `
-                  -Description 'Temporaeres Build-Konto, wird von sysprep.ps1 entfernt' `
+                  -Description 'Temporaeres Build-Konto' `
                   -AccountNeverExpires `
                   -PasswordNeverExpires
     Write-Log "Konto packer angelegt"
 } else {
     Set-LocalUser -Name 'packer' -Password $securePassword -PasswordNeverExpires $true
     Write-Log "Konto packer existierte, Passwort gesetzt"
+}
+
+# Ohne Konto ist alles Weitere sinnlos. Lieber hier mit klarer Meldung
+# abbrechen, als Packer eine halbe Stunde gegen eine 401 laufen zu lassen.
+if ($null -eq (Get-LocalUser -Name 'packer' -ErrorAction SilentlyContinue)) {
+    Write-Log "ABBRUCH: Konto 'packer' existiert nach dem Anlegen nicht."
+    exit 1
 }
 
 # Ueber die SID, nicht den Namen: das Image ist deutschsprachig, die Gruppe

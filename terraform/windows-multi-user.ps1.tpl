@@ -34,18 +34,36 @@ Write-Log "Nutzer: ${username}   Team: ${team}   Mail: ${email}"
 # "Das Konto ist momentan deaktiviert". Ein eigenes Konto umgeht das.
 $securePassword = ConvertTo-SecureString '${password}' -AsPlainText -Force
 
+# Description hat bei lokalen Konten ein hartes Limit von 48 Zeichen, und
+# der Teamname kommt von aussen - seine Laenge ist hier nicht vorhersehbar.
+# Eine zu lange Beschreibung laesst New-LocalUser scheitern, das Konto
+# fehlt, und die RDP-Anmeldung wird abgewiesen, ohne dass irgendwo
+# "Beschreibung zu lang" steht. Am 19.09.2026 ist der Packer-Build genau
+# daran gescheitert; hier wird deshalb gekuerzt statt gehofft.
+$beschreibung = 'App-Store Kurs, Team ${team}'
+if ($beschreibung.Length -gt 48) {
+    $beschreibung = $beschreibung.Substring(0, 48)
+}
+
 $existing = Get-LocalUser -Name '${username}' -ErrorAction SilentlyContinue
 if ($null -eq $existing) {
     Write-Log "Lege Konto ${username} an"
     New-LocalUser -Name '${username}' `
                   -Password $securePassword `
                   -FullName '${email}' `
-                  -Description 'App-Store Kurszugang, Team ${team}' `
+                  -Description $beschreibung `
                   -AccountNeverExpires `
                   -PasswordNeverExpires
 } else {
     Write-Log "Konto ${username} existiert bereits, setze nur das Passwort"
     Set-LocalUser -Name '${username}' -Password $securePassword -PasswordNeverExpires $true
+}
+
+# Ohne Konto kommt der Studierende nicht auf seine VM. Das soll im
+# Konsolenlog stehen und nicht stillschweigend durchlaufen.
+if ($null -eq (Get-LocalUser -Name '${username}' -ErrorAction SilentlyContinue)) {
+    Write-Log "ABBRUCH: Konto ${username} existiert nach dem Anlegen nicht."
+    exit 1
 }
 
 # -----------------------------------------------------------------------------
