@@ -83,6 +83,7 @@ dort *Remotedesktopbenutzer* und *Administratoren*.
 | Flavor | `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
 | Netz | `DHBWV6` — doppelstapelig, IPv4 `10.200.0.0/19` und IPv6 |
 | Floating IP | Nein — die Instanz ist über ihre IPv6-Adresse direkt erreichbar |
+| Zugangsadresse | **IPv6, in eckigen Klammern** — `[2001:…]:3389` |
 
 Die `gp1`-Familie scheidet aus: das Basis-Image verlangt `min_disk` 64 GB,
 `gp1` liefert durchgehend 10 GB. `win11.medium` bootet außerdem ohne
@@ -191,3 +192,20 @@ Eine reine Auskunft hat damit einen vollständig erfolgreichen Build verworfen.
 
 Beide Skripte enden jetzt mit einem ausdrücklichen `exit 0`, und der
 Protokollblock lädt vorher den `PATH` aus der Maschinen-Umgebung nach.
+
+## Warum die Ausgabe IPv6 liefert
+
+Die Nutzer-VMs hängen in einem doppelstapeligen Netz. Ihre IPv4-Adresse stammt
+aus `10.200.0.0/19` und ist **ausschließlich projektintern** — wer sie einem
+Studierenden schickt, schickt ihm eine Adresse, unter der er nichts erreicht.
+Öffentlich erreichbar ist allein die IPv6-Adresse.
+
+Die Ubuntu-App gibt `network[0].fixed_ip_v4` aus; diese App gibt
+`access_ip_v6` aus, in eckigen Klammern. Die Klammern sind nötig, weil die
+Plattform `<ip>:<port>` zusammensetzt — ohne sie entstünde
+`2001:7c0:1b20:c913:1::3b1:3389`, und niemand könnte sagen, wo die Adresse
+aufhört und der Port anfängt. Mit Klammern ist es genau die Form, die der
+RDP-Client erwartet.
+
+**Der Benutzername braucht ein führendes `.\`** — sonst sucht der RDP-Client
+das Konto bei Microsoft oder in einer Domäne und findet es nie.
