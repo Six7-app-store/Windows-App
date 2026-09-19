@@ -154,7 +154,9 @@ Ehrlichkeitshalber, weil das für die Bewertung des Codes zählt:
 - Ein `terraform apply` mit echten Nutzern
 - Der RDP-Zugang durch einen Studierenden
 - Ob die selbst gesetzte IPv6-Adresse die Instanz tatsächlich erreichbar macht
-- Die Softwareinstallation über Chocolatey (der Build kam nie so weit)
+- Die Softwareinstallation über Chocolatey **bis Node.js** — Chocolatey,
+  Python 3.14.7 und zwölf Abhängigkeiten liefen durch
+- Was danach kommt: Git, VS Code, das Kursverzeichnis, Neustart, Aufräumen
 
 **Ein zweiter Versuch am 19.09.2026 scheiterte an `401 - invalid content type`.**
 Ursache war weder Netz noch Zertifikat: `New-LocalUser` lehnte eine
@@ -169,3 +171,12 @@ Voreinstellungen, die aus der Ubuntu-App übernommen und nicht gegen diesen
 Tenant geprüft waren: `Unable to find security_group with name or id
 '4ffaf007-...'`. Netz- und Security-Group-IDs sind seither die des Projekts
 `ma_wwi_24sea_appstore_g1`.
+
+**Ein dritter Versuch scheiterte an einer geratenen Versionsnummer:**
+`choco install nodejs-lts --version=24.0.0` fand nichts — Chocolatey führt
+unter `nodejs-lts` die echten Node-Releases, und eine glatte `24.0.0` ist
+keines davon. Die Festlegung ist entfallen; installiert wird die jeweils
+aktuelle LTS-Fassung, und die tatsächlich installierten Versionen stehen am
+Ende des Build-Protokolls. Außerdem sind die Pakete jetzt in Pflicht
+(Python, Node, Git) und Kür (Editoren, Browser) geteilt — ein fehlendes
+Kür-Paket wirft keinen halbstündigen Build mehr weg.

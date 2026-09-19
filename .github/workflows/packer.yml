@@ -80,3 +80,52 @@ jobs:
           fi
         done
         exit $fehlt
+
+    # Die beiden Vorlagen erst mit Beispielwerten rendern - PowerShell soll
+    # den Text sehen, den die VM spaeter bekommt, nicht die Platzhalter.
+    - name: PowerShell-Vorlagen rendern
+      run: |
+        set -euo pipefail
+        mkdir -p /tmp/ps
+        python3 - <<'PY'
+        import io
+        werte = {
+            'terraform/windows-multi-user.ps1.tpl': {
+                'username': 'alicesmith', 'password': 'Tq7!xR-2mVp9wZ=k',
+                'team': 'team-alpha', 'email': 'alice.smith@dhbw.de'},
+            'packer/scripts/bootstrap.ps1.tpl': {
+                'build_password': 'Bld!abc123def456Aa1'},
+        }
+        for pfad, vars in werte.items():
+            s = io.open(pfad, encoding='utf-8').read()
+            for k, v in vars.items():
+                s = s.replace('${%s}' % k, v)
+            s = s.replace('$${', '${').replace('%%{', '%{')
+            ziel = '/tmp/ps/' + pfad.split('/')[-1].replace('.tpl', '')
+            io.open(ziel, 'w', encoding='utf-8').write(s)
+            print('gerendert:', ziel)
+        PY
+        cp packer/scripts/provision.ps1 packer/scripts/cleanup.ps1 /tmp/ps/
+
+    # Ein Syntaxfehler in einem dieser Skripte faellt sonst erst auf der
+    # laufenden VM auf - nach Image-Download, Boot und WinRM-Verbindung,
+    # also eine knappe halbe Stunde in den Build hinein.
+    - name: PowerShell-Syntax pruefen
+      shell: pwsh
+      run: |
+        $fehler = 0
+        foreach ($datei in (Get-ChildItem /tmp/ps -Filter *.ps1)) {
+            $tokens = $null; $parseFehler = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+                $datei.FullName, [ref]$tokens, [ref]$parseFehler) | Out-Null
+            if ($parseFehler.Count -gt 0) {
+                Write-Output "::error::$($datei.Name): $($parseFehler.Count) Syntaxfehler"
+                $parseFehler | Select-Object -First 5 | ForEach-Object {
+                    Write-Output "  Zeile $($_.Extent.StartLineNumber): $($_.Message)"
+                }
+                $fehler++
+            } else {
+                Write-Output "$($datei.Name): Syntax OK"
+            }
+        }
+        if ($fehler -gt 0) { exit 1 }

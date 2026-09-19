@@ -9,8 +9,6 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # sonst bremsen die Fortschrittsbalken jeden Download
 
-$NodeVersion = "24"
-
 Write-Output "=== Provisioning startet ==="
 
 # -----------------------------------------------------------------------------
@@ -50,24 +48,56 @@ choco feature enable -n allowGlobalConfirmation
 # -----------------------------------------------------------------------------
 # Entspricht dem, was die Ubuntu-App mitbringt: Python, Node, Git, Editoren.
 # --no-progress haelt das Build-Log lesbar.
-$pakete = @(
-    "python3",
-    "nodejs-lts --version=$NodeVersion.0.0",
-    "git",
-    "vscode",
-    "notepadplusplus",
-    "7zip",
-    "googlechrome"
-)
+# Ohne diese drei ist das Image seinen Zweck nicht wert - fehlt eines,
+# bricht der Build ab.
+$pflicht = @("python3", "nodejs-lts", "git")
 
-foreach ($paket in $pakete) {
-    Write-Output "Installiere $paket ..."
-    $argumente = $paket -split ' '
-    & choco install @argumente -y --no-progress --ignore-checksums
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) {
-        # 3010 heisst "erfolgreich, Neustart noetig" - kein Fehler.
-        throw "choco install $paket endete mit Code $LASTEXITCODE"
+# Bequemlichkeit, kein Kursinhalt. Ein Ausfall hier soll keinen
+# halbstuendigen Build wegwerfen: Chocolatey-Pakete fuer Fremdsoftware
+# aendern sich haeufig, googlechrome faellt regelmaessig ueber
+# Pruefsummen. Fehlt eines, steht das am Ende im Protokoll.
+$optional = @("vscode", "notepadplusplus", "7zip", "googlechrome")
+
+# KEINE Versionsfestlegung bei nodejs-lts.
+#
+# Vorher stand hier "--version=24.0.0". Chocolatey fuehrt unter
+# nodejs-lts die echten Node-Releases, und eine glatte 24.0.0 ist keines
+# davon - der Build brach ab mit "The package was not found with the
+# source(s) listed". Ohne Festlegung kommt die jeweils aktuelle
+# LTS-Fassung, und die tatsaechlich installierte Version steht unten im
+# Protokoll.
+
+$fehlgeschlagen = @()
+
+function Install-Paket {
+    param([string]$Name, [switch]$Pflicht)
+
+    Write-Output "Installiere $Name ..."
+    & choco install $Name -y --no-progress --ignore-checksums
+    # 3010 heisst "erfolgreich, Neustart noetig" - kein Fehler.
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+        return $true
     }
+    if ($Pflicht) {
+        throw "choco install $Name endete mit Code $LASTEXITCODE - ohne dieses Paket ist das Image unbrauchbar."
+    }
+    Write-Output "  WARNUNG: $Name endete mit Code $LASTEXITCODE, wird uebersprungen."
+    return $false
+}
+
+foreach ($paket in $pflicht) {
+    Install-Paket -Name $paket -Pflicht | Out-Null
+}
+
+foreach ($paket in $optional) {
+    if (-not (Install-Paket -Name $paket)) {
+        $fehlgeschlagen += $paket
+    }
+}
+
+if ($fehlgeschlagen.Count -gt 0) {
+    Write-Output ""
+    Write-Output "Nicht installiert (optional): $($fehlgeschlagen -join ', ')"
 }
 
 # -----------------------------------------------------------------------------
@@ -238,5 +268,19 @@ Write-Output "Setze ExecutionPolicy auf RemoteSigned"
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
 
 Write-Output "=== Provisioning beendet ==="
-Write-Output "Installiert:"
+Write-Output ""
+# Welche Fassungen tatsaechlich im Image liegen. Bei nodejs-lts gibt es
+# keine Festlegung mehr, also ist das hier die einzige Stelle, an der
+# die Node-Version nachvollziehbar wird.
+Write-Output "Installierte Pakete:"
 & choco list --local-only --limit-output
+Write-Output ""
+foreach ($werkzeug in @("python --version", "node --version", "git --version")) {
+    try {
+        $teile = $werkzeug -split ' '
+        $ausgabe = & $teile[0] $teile[1] 2>&1
+        Write-Output "  $($teile[0]): $ausgabe"
+    } catch {
+        Write-Output "  $($werkzeug): nicht aufrufbar ($($_.Exception.Message))"
+    }
+}
