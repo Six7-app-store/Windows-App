@@ -69,6 +69,15 @@ $optional = @("vscode", "notepadplusplus", "7zip", "googlechrome")
 
 $fehlgeschlagen = @()
 
+# Die Funktion gibt bewusst NICHTS zurueck, und der Aufruf hat keine Pipe.
+#
+# Vorher stand hier "Install-Paket ... | Out-Null", um den Rueckgabewert
+# loszuwerden. Das verschluckt aber die ganze Erfolgs-Ausgabe der Funktion -
+# die eigenen Meldungen ebenso wie die von choco. Der Build sah dann zwischen
+# "Enabled allowGlobalConfirmation" und dem naechsten Abschnitt minutenlang
+# aus, als haenge er, waehrend in Wahrheit fuenf Pakete heruntergeladen
+# wurden. Was fehlschlaegt, wird stattdessen in $script:fehlgeschlagen
+# vermerkt.
 function Install-Paket {
     param([string]$Name, [switch]$Pflicht)
 
@@ -76,23 +85,22 @@ function Install-Paket {
     & choco install $Name -y --no-progress --ignore-checksums
     # 3010 heisst "erfolgreich, Neustart noetig" - kein Fehler.
     if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
-        return $true
+        Write-Output "  $Name ist installiert."
+        return
     }
     if ($Pflicht) {
         throw "choco install $Name endete mit Code $LASTEXITCODE - ohne dieses Paket ist das Image unbrauchbar."
     }
     Write-Output "  WARNUNG: $Name endete mit Code $LASTEXITCODE, wird uebersprungen."
-    return $false
+    $script:fehlgeschlagen += $Name
 }
 
 foreach ($paket in $pflicht) {
-    Install-Paket -Name $paket -Pflicht | Out-Null
+    Install-Paket -Name $paket -Pflicht
 }
 
 foreach ($paket in $optional) {
-    if (-not (Install-Paket -Name $paket)) {
-        $fehlgeschlagen += $paket
-    }
+    Install-Paket -Name $paket
 }
 
 if ($fehlgeschlagen.Count -gt 0) {
