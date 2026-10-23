@@ -1,0 +1,8 @@
+UEBUNG 3 - DATEIEN UND RECHTE
+
+1. Lege im Kursverzeichnis eine Datei notizen.txt an und schreibe etwas hinein.
+2. Haenge eine zweite Zeile an, ohne die erste zu ueberschreiben.
+3. Lass dir die Zugriffsrechte der Datei anzeigen.
+4. Nimm der Gruppe "Benutzer" das Schreibrecht.
+
+Tipp: Set-Content, Add-Content, Get-Acl, Set-Acl

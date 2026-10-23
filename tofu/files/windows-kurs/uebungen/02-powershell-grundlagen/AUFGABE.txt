@@ -1,0 +1,10 @@
+UEBUNG 2 - POWERSHELL-GRUNDLAGEN
+
+1. Lass dir alle laufenden Prozesse anzeigen, nach Speicherverbrauch sortiert.
+2. Zeige nur die fuenf groessten an.
+3. Gib nur die Spalten Name und WorkingSet aus.
+
+Tipp: Get-Process, Sort-Object, Select-Object -First
+
+Frage zum Nachdenken: Unter Linux braeuchtest du dafuer ps, sort, head und
+awk. Warum kommt PowerShell mit drei Befehlen aus?

@@ -1,0 +1,12 @@
+UEBUNG 5 - SKRIPTE
+
+1. Schreibe ein Skript auswertung.ps1, das studenten.csv einliest.
+2. Gib alle Studierenden des Kurses WWI23B aus.
+3. Berechne den Notendurchschnitt.
+4. Sortiere die Ausgabe nach Note.
+
+Tipp: Import-Csv, Where-Object, Measure-Object -Average, Sort-Object
+
+Hinweis: Skripte duerfen erst laufen, wenn die Ausfuehrungsrichtlinie es
+erlaubt. Auf dieser VM ist sie bereits gelockert - schau mit
+Get-ExecutionPolicy nach, was eingestellt ist.

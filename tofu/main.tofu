@@ -1,5 +1,7 @@
+# OpenTofu erwartet weiterhin das Schluesselwort "terraform"; die Provider
+# werden ueber registry.opentofu.org aufgeloest. .tofu-Dateien ab 1.8.
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.8"
 
   required_providers {
     openstack = {
@@ -113,7 +115,9 @@ resource "random_password" "user_passwords" {
   min_special      = 1
 }
 
-# Packer-built image lookup by name (keine IDs hardcoden)
+# Unveraendertes Basis-Image, per Name nachgeschlagen (keine IDs
+# hardcoden). Ein eigenes Image wird nicht mehr gebaut: Software und
+# Kursmaterial richtet windows-multi-user.ps1.tpl beim ersten Start ein.
 data "openstack_images_image_v2" "image" {
   name        = var.image_name
   most_recent = true
@@ -131,6 +135,15 @@ data "openstack_images_image_v2" "image" {
 data "openstack_networking_network_v2" "external" {
   count = local.enable_floating_ip ? 1 : 0
   name  = var.floating_ip_pool
+}
+
+# Fuer alle VMs gleich, deshalb einmal hier statt je Instanz.
+locals {
+  software_gz = base64gzip(file("${path.module}/files/software.ps1"))
+  kurs_json = jsonencode({
+    for f in fileset("${path.module}/files/windows-kurs", "**") :
+    f => base64gzip(file("${path.module}/files/windows-kurs/${f}"))
+  })
 }
 
 # -----------------------------------------------------------------------------
@@ -160,11 +173,17 @@ resource "openstack_compute_instance_v2" "user_vm" {
   # cloudbase-init statt cloud-init. Das Skript wird vom UserDataPlugin
   # ausgefuehrt - nachgewiesen am Image "Windows 11 25H2 (UEFI)", dessen
   # Plugin-Liste UserDataPlugin enthaelt.
+  #
+  # Softwareskript und Kursmaterial gehen gzip+base64 mit: so stoeren die
+  # $-Zeichen von PowerShell das Template nicht, und user_data bleibt weit
+  # unter dem Nova-Limit von 64 KB.
   user_data = templatefile("${path.module}/windows-multi-user.ps1.tpl", {
-    username = local.usernames[count.index]
-    password = random_password.user_passwords[count.index].result
-    team     = local.all_users[count.index].team
-    email    = local.all_users[count.index].email
+    username    = local.usernames[count.index]
+    password    = random_password.user_passwords[count.index].result
+    team        = local.all_users[count.index].team
+    email       = local.all_users[count.index].email
+    software_gz = local.software_gz
+    kurs_json   = local.kurs_json
   })
 
   metadata = merge(local.metadata, {
@@ -184,11 +203,16 @@ resource "openstack_networking_floatingip_v2" "fip" {
   pool  = data.openstack_networking_network_v2.external[0].name
 }
 
-# Warten bis die VMs vollständig gebootet sind
+# Warten, bis cloudbase-init Konto und RDP eingerichtet hat. Ohne das meldet
+# OpenTofu fertig, sobald die Instanz ACTIVE ist - die Zugangsdaten gingen
+# dann raus, bevor die Anmeldung funktioniert.
+#
+# Bewusst nicht bis zum Ende der Softwareinstallation (10 bis 20 Minuten
+# mehr): der Worker bricht ein Apply nach 30 Minuten ab, und das Anlegen der
+# Instanz selbst kann davon schon die Haelfte brauchen.
 resource "time_sleep" "wait_for_vm" {
-  count           = local.enable_floating_ip ? 1 : 0
   depends_on      = [openstack_compute_instance_v2.user_vm]
-  create_duration = "120s"
+  create_duration = "300s"
 }
 
 # Port-ID je VM finden

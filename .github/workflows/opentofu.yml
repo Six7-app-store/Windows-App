@@ -1,0 +1,133 @@
+# Prueft Formatierung, Syntax und das Verhalten des OpenTofu-Codes (fmt,
+# validate, test mit gemockten Providern) und die PowerShell-Skripte, die
+# beim ersten Start auf der VM laufen. Kein plan/apply: die OpenStack-API der
+# DHBW ist von einem gehosteten Runner nicht erreichbar, das Ausrollen
+# uebernimmt der App-Store-Worker.
+#
+# tflint und tfsec laufen nicht mehr mit: beide lesen nur *.tf und finden in
+# tofu/ keine Datei.
+
+name: 'OpenTofu'
+
+on:
+  push:
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  opentofu:
+    name: 'OpenTofu'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: tofu
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Gleiche Version wie im App-Store-Worker
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v2
+      with:
+        tofu_version: 1.13.1
+        tofu_wrapper: false
+
+    - name: OpenTofu Init
+      run: tofu init -backend=false
+
+    - name: OpenTofu Format
+      run: tofu fmt -check -recursive
+
+    - name: OpenTofu Validate
+      run: tofu validate
+
+    - name: OpenTofu Test
+      run: tofu test
+
+    # Das Startskript wird per templatefile() gerendert und unterliegt damit
+    # der Template-Syntax von OpenTofu.
+    #
+    # Die %{-Regel gilt AUCH in PowerShell-Kommentaren: OpenTofu kennt keine
+    # Kommentare, es sieht nur Text. Eine Kommentarzeile, die vor %{ warnt und
+    # dabei %{ schreibt, bricht das Rendern genauso ab wie Code - genau dieser
+    # Fehler steckte in der ersten Fassung dieser App.
+    #
+    # `tofu validate` faengt das mit ab, weil main.tofu die Vorlage aufruft.
+    # Dieser Schritt benennt den Fehler klarer als "Invalid character".
+    - name: Startskript-Vorlage pruefen
+      run: |
+        set -euo pipefail
+        vorlage=windows-multi-user.ps1.tpl
+
+        if ! head -1 "$vorlage" | grep -q '^#ps1_sysnative$'; then
+          echo "::error::$vorlage muss mit #ps1_sysnative beginnen (ohne CR), sonst fuehrt cloudbase-init sie nicht aus."
+          exit 1
+        fi
+
+        # Erst die Fluchtformen %% und $$ durch Steuerzeichen ersetzen; was
+        # danach noch als %{ oder ${ dasteht, meint OpenTofu ernst.
+        entschaerft=$(sed -e 's/%%/\x01/g' -e 's/\$\$/\x02/g' "$vorlage")
+
+        if printf '%s\n' "$entschaerft" | grep -n '%{'; then
+          echo "::error::$vorlage enthaelt ein unescaptes %{ (Zeilen oben). OpenTofu liest das als Direktive - auch im Kommentar. Schreibe %%{ oder ForEach-Object aus."
+          exit 1
+        fi
+
+        unbekannt=$(printf '%s\n' "$entschaerft" \
+                    | grep -o '\${[^}]*}' \
+                    | sort -u \
+                    | grep -vE '^\$\{(username|password|team|email|software_gz|kurs_json)\}$' || true)
+        if [ -n "$unbekannt" ]; then
+          echo "::error::$vorlage interpoliert Namen, die nicht uebergeben werden:"
+          echo "$unbekannt"
+          echo "Fuer ein literales Dollar-Klammer-Paar zwei Dollarzeichen schreiben."
+          exit 1
+        fi
+        echo "in Ordnung"
+
+    # Mit Beispielwerten rendern, und zwar mit OpenTofu selbst: PowerShell
+    # soll genau den Text sehen, den die VM spaeter bekommt.
+    - name: Startskript rendern
+      run: |
+        set -euo pipefail
+        mkdir -p /tmp/ps
+        echo 'jsonencode(templatefile("windows-multi-user.ps1.tpl", {
+          username = "alicesmith", password = "Tq7!xR-2mVp9wZ=k",
+          team = "team-alpha", email = "alice.smith@dhbw.de",
+          software_gz = local.software_gz, kurs_json = local.kurs_json }))' \
+          | tofu console \
+          | python3 -c 'import json,sys; sys.stdout.write(json.loads(json.load(sys.stdin)))' \
+          > /tmp/ps/startskript.ps1
+        cp files/software.ps1 /tmp/ps/
+        wc -c /tmp/ps/*.ps1
+
+    # Ein Syntaxfehler in diesen Skripten faellt sonst erst auf der laufenden
+    # VM auf - nach dem ersten Windows-Start, also eine Viertelstunde nach dem
+    # Apply und ohne Meldung an den Worker.
+    - name: PowerShell-Syntax pruefen
+      shell: pwsh
+      run: |
+        $fehler = 0
+        foreach ($datei in (Get-ChildItem /tmp/ps -Filter *.ps1)) {
+            $tokens = $null; $parseFehler = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+                $datei.FullName, [ref]$tokens, [ref]$parseFehler) | Out-Null
+            if ($parseFehler.Count -gt 0) {
+                Write-Output "::error::$($datei.Name): $($parseFehler.Count) Syntaxfehler"
+                $parseFehler | Select-Object -First 5 | ForEach-Object {
+                    Write-Output "  Zeile $($_.Extent.StartLineNumber): $($_.Message)"
+                }
+                $fehler++
+            } else {
+                Write-Output "$($datei.Name): Syntax OK"
+            }
+        }
+        if ($fehler -gt 0) { exit 1 }

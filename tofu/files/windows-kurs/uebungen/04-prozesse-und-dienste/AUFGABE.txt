@@ -1,0 +1,8 @@
+UEBUNG 4 - PROZESSE UND DIENSTE
+
+1. Starte den Editor (notepad) aus PowerShell heraus.
+2. Finde seine Prozess-ID.
+3. Beende ihn wieder, ohne die Maus zu benutzen.
+4. Welche Dienste laufen gerade, deren Name mit "Win" beginnt?
+
+Tipp: Start-Process, Get-Process, Stop-Process, Get-Service

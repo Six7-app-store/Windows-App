@@ -1,0 +1,8 @@
+2026-09-01 08:12:03 INFO  Dienst gestartet
+2026-09-01 08:12:44 INFO  Anmeldung erfolgreich benutzer=amueller
+2026-09-01 09:03:11 WARN  Speicherauslastung 87 Prozent
+2026-09-01 09:14:52 ERROR Datenbankverbindung verloren
+2026-09-01 09:14:55 INFO  Wiederverbindung erfolgreich
+2026-09-01 11:41:09 ERROR Zeitueberschreitung bei Anfrage id=4711
+2026-09-01 14:22:30 INFO  Anmeldung fehlgeschlagen benutzer=unbekannt
+2026-09-01 17:58:01 INFO  Dienst beendet

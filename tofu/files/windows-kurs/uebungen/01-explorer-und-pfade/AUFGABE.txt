@@ -1,0 +1,8 @@
+UEBUNG 1 - EXPLORER UND PFADE
+
+1. Finde heraus, in welchem Verzeichnis PowerShell startet.
+2. Wechsle in dein Kursverzeichnis auf dem Desktop.
+3. Lass dir den Inhalt anzeigen, auch die versteckten Eintraege.
+4. Was ist der Unterschied zwischen C:\Users\Public und deinem Profil?
+
+Tipp: Get-Location, Set-Location, Get-ChildItem -Force

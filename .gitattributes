@@ -1,0 +1,12 @@
+# Ohne diese Datei schreibt Git bei core.autocrlf=true (Standard auf Windows)
+# die Zeilenenden beim Auschecken um. OpenTofu liest die Dateien mit file()
+# und templatefile() so, wie sie auf der Platte liegen - was auf der VM
+# ankommt, haengt dann davon ab, wer zuletzt ausgerollt hat.
+#
+# Die PowerShell-Skripte bleiben bei LF. So hat cloudbase-init das
+# Startskript am Basis-Image nachweislich ausgefuehrt; ein "\r" hinter der
+# Kopfzeile #ps1_sysnative ist ungeprueft und waere eine stille Fehlerquelle.
+* text=auto eol=lf
+
+# Das Kursmaterial oeffnen Studierende im Windows-Editor.
+tofu/files/windows-kurs/** text eol=crlf
