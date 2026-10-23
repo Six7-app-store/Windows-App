@@ -1,0 +1,41 @@
+WINDOWS-KURS - KURZREFERENZ
+===========================
+
+PowerShell oeffnen: Windows-Taste, "powershell" tippen, Enter.
+
+NAVIGATION
+  Get-Location            pwd          Wo bin ich?
+  Set-Location C:\Temp    cd           Verzeichnis wechseln
+  Get-ChildItem           ls / dir     Inhalt anzeigen
+  Get-ChildItem -Recurse  ls -R        Auch Unterverzeichnisse
+
+DATEIEN
+  New-Item datei.txt              touch      Datei anlegen
+  Get-Content datei.txt           cat        Inhalt anzeigen
+  Get-Content datei.txt -Tail 10  tail       Letzte 10 Zeilen
+  Copy-Item a b                   cp         Kopieren
+  Move-Item a b                   mv         Verschieben/Umbenennen
+  Remove-Item datei.txt           rm         Loeschen
+
+SUCHEN
+  Select-String "muster" datei.txt    grep     In Dateien suchen
+  Get-ChildItem -Filter *.log         find     Nach Namen suchen
+
+PROZESSE UND DIENSTE
+  Get-Process                  ps        Laufende Programme
+  Stop-Process -Name notepad   kill      Programm beenden
+  Get-Service                  systemctl Dienste auflisten
+  Restart-Service -Name Spooler          Dienst neu starten
+
+SYSTEM
+  Get-ComputerInfo                       Systemuebersicht
+  Get-Volume                   df        Laufwerke und freier Platz
+  Get-NetIPAddress             ip addr   Netzwerkadressen
+
+HILFE
+  Get-Help Get-ChildItem -Examples       Beispiele zu einem Befehl
+  Get-Command *service*                  Befehle suchen
+
+MERKE: PowerShell arbeitet mit Objekten, nicht mit Text. Deshalb geht
+  Get-Process | Where-Object { $_.CPU -gt 10 } | Sort-Object CPU
+ohne einen einzigen Aufruf von grep, awk oder cut.

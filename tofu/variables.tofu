@@ -10,14 +10,19 @@ variable "users" {
   default = {}
 }
 
-variable "image_name" {
-  description = "Glance-Image-Name — vom Worker zur Apply-Zeit gesetzt. @platform:internal"
-  type        = string
-}
-
 ################################################
 # Konfigurierbare Variablen
 ################################################
+
+# Das unveraenderte Basis-Image. Frueher setzte der Worker hier den Namen des
+# Packer-Images ein; seit ADR 0010 gibt es keinen Image-Bau mehr, und die
+# Einrichtung laeuft beim ersten Start. Das Image muss cloudbase-init mit
+# UserDataPlugin mitbringen - nachgewiesen fuer "Windows 11 25H2 (UEFI)".
+variable "image_name" {
+  description = "Windows-11-Basis-Image mit cloudbase-init @openstack:image:name"
+  type        = string
+  default     = "Windows 11 25H2 (UEFI)"
+}
 
 variable "network_uuid" {
   description = "Hauptnetzwerk @openstack:network:id"

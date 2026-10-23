@@ -6,11 +6,17 @@
 # Die Kopfzeile #ps1_sysnative ist Pflicht - daran erkennt cloudbase-init,
 # dass der Rest PowerShell ist und in der 64-Bit-Umgebung laufen soll.
 #
-# Terraform rendert diese Datei mit templatefile(). Zwei Zeichenfolgen sind
+# Es gibt kein vorgefertigtes Image mehr (ADR 0010 im deployment-Repo: kein
+# Packer). Die VM startet vom unveraenderten Basis-Image, und dieses Skript
+# erledigt beim ersten Start alles, was frueher der Image-Bau tat:
+# Kursmaterial ablegen und Software installieren. Beides kommt
+# gzip-komprimiert und base64-kodiert mit, siehe main.tofu.
+#
+# OpenTofu rendert diese Datei mit templatefile(). Zwei Zeichenfolgen sind
 # darin nicht woertlich zu nehmen: $${ steht fuer ein literales
 # Dollar-Klammer-Paar, %%{ fuer ein Prozent-Klammer-Paar. Letzteres leitet
 # sonst eine Template-Direktive ein - auch mitten in einem Kommentar, denn
-# Terraform kennt PowerShell-Kommentare nicht. Wo PowerShell %%{ } als
+# OpenTofu kennt PowerShell-Kommentare nicht. Wo PowerShell %%{ } als
 # Kurzform fuer ForEach-Object kennt, steht hier der ausgeschriebene Name.
 # =============================================================================
 
@@ -20,6 +26,18 @@ $logFile = "C:\Windows\Temp\appstore-setup.log"
 function Write-Log($message) {
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $message"
     $line | Out-File -Append -FilePath $logFile -Encoding utf8
+}
+
+# Gegenstueck zu base64gzip() in main.tofu. Das Komma vor dem Ergebnis ist
+# noetig: ohne es zerlegt PowerShell das Byte-Array beim Zurueckgeben in
+# einzelne Werte.
+function Expand-Gzip($base64) {
+    $eingang = New-Object System.IO.MemoryStream(, [Convert]::FromBase64String($base64))
+    $gzip = New-Object System.IO.Compression.GZipStream($eingang, [System.IO.Compression.CompressionMode]::Decompress)
+    $ausgang = New-Object System.IO.MemoryStream
+    $gzip.CopyTo($ausgang)
+    $gzip.Dispose()
+    return , $ausgang.ToArray()
 }
 
 Write-Log "=== Einrichtung startet ==="
@@ -170,8 +188,52 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Remotedesktop einschalten
+# 4. Kursmaterial im Standardprofil ablegen
 # -----------------------------------------------------------------------------
+# C:\Users\Default ist das Windows-Gegenstueck zu /etc/skel: Windows kopiert
+# es beim ersten Anmelden in das neue Profil. Das Konto oben hat noch kein
+# Profil, es entsteht erst bei der ersten RDP-Anmeldung. Deshalb muss das
+# Material hier liegen, BEVOR Remotedesktop eingeschaltet wird.
+#
+# Die Dateien liegen im Repo unter tofu/files/windows-kurs/. Der JSON-Text
+# ordnet jedem relativen Pfad seinen gzip-komprimierten Inhalt zu.
+Write-Log "Lege Kursmaterial an"
+$kurs = 'C:\Users\Default\Desktop\Windows-Kurs'
+try {
+    $kursDateien = '${kurs_json}' | ConvertFrom-Json
+    foreach ($eintrag in $kursDateien.PSObject.Properties) {
+        $ziel = Join-Path $kurs ($eintrag.Name -replace '/', '\')
+        New-Item -ItemType Directory -Path (Split-Path $ziel -Parent) -Force | Out-Null
+        [System.IO.File]::WriteAllBytes($ziel, (Expand-Gzip $eintrag.Value))
+    }
+    Write-Log "  $(@($kursDateien.PSObject.Properties).Count) Dateien unter $kurs"
+} catch {
+    Write-Log "Kursmaterial fehlgeschlagen: $($_.Exception.Message)"
+}
+
+# Standardmaessig weigert sich Windows, eigene Skripte auszufuehren. Fuer
+# Uebung 5 ist das genau die Huerde, an der der Kurs sonst endet.
+# RemoteSigned bleibt dabei sicher: heruntergeladene Skripte brauchen weiter
+# eine Signatur, selbst geschriebene nicht.
+#
+# Ueber die Registry statt Set-ExecutionPolicy: cloudbase-init startet
+# dieses Skript mit einer eigenen Process-Richtlinie, und die ist
+# spezifischer als LocalMachine. Set-ExecutionPolicy setzt den Wert zwar,
+# meldet aber trotzdem eine SecurityException wegen der Ueberschreibung.
+# Jede PowerShell, die danach startet, liest den neuen Wert.
+$richtlinie = 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell'
+New-Item -Path $richtlinie -Force | Out-Null
+Set-ItemProperty -Path $richtlinie -Name 'ExecutionPolicy' -Value 'RemoteSigned'
+Write-Log "ExecutionPolicy auf RemoteSigned gesetzt"
+
+# -----------------------------------------------------------------------------
+# 5. Remotedesktop einschalten
+# -----------------------------------------------------------------------------
+# Bewusst VOR der Softwareinstallation. Die dauert 10 bis 20 Minuten, und
+# OpenTofu meldet das Deployment schon vorher als fertig - der Worker bricht
+# ein Apply nach 30 Minuten ab, und davon braucht der erste Windows-Start
+# bereits einen guten Teil. Wer sich in dieser Zeit anmeldet, kommt hinein
+# und sieht Python, Node und Git nach und nach erscheinen.
 Write-Log "Schalte Remotedesktop ein"
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
                  -Name 'fDenyTSConnections' -Value 0
@@ -195,34 +257,22 @@ Set-Service -Name TermService -StartupType Automatic -ErrorAction SilentlyContin
 Start-Service -Name TermService -ErrorAction SilentlyContinue
 
 # -----------------------------------------------------------------------------
-# 5. Kursmaterial im Profil bereitstellen
+# 6. Software installieren
 # -----------------------------------------------------------------------------
-# Das Material liegt im Image unter C:\Users\Default (das Windows-Gegenstueck
-# zu /etc/skel). Windows kopiert es beim ersten Anmelden in das neue Profil.
-# Hier wird nur nachgesehen, ob es da ist - fehlt es, gehoert der Fehler in
-# das Packer-Skript, nicht hierher.
-if (Test-Path 'C:\Users\Default\Desktop\Windows-Kurs') {
-    Write-Log "Kursmaterial im Standardprofil gefunden"
-} else {
-    Write-Log "WARNUNG: kein Kursmaterial unter C:\Users\Default - Image pruefen"
-}
-
-# -----------------------------------------------------------------------------
-# 6. Build-Konto aus dem Abbild entfernen
-# -----------------------------------------------------------------------------
-# Das Abbild bringt das Konto 'packer' mit, mit dem Packer es gebaut hat.
-# Entfernen liess es sich dort nicht: Packer meldet sich damit bei jeder
-# WinRM-Anfrage an, ein Loeschen mitten im Build endet in einer 401.
-#
-# Hier ist der richtige Ort. cloudbase-init laeuft vor jeder Anmeldung, das
-# Konto ist also weg, bevor ein Studierender die VM zu sehen bekommt.
-$buildKonto = Get-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
-if ($null -ne $buildKonto) {
-    Remove-LocalUser -Name 'packer' -ErrorAction SilentlyContinue
-    Remove-Item -Path 'C:\Users\packer' -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Log "Build-Konto 'packer' entfernt"
-} else {
-    Write-Log 'Kein Build-Konto vorhanden'
+# tofu/files/software.ps1, als eigener Prozess: das Skript arbeitet mit
+# ErrorActionPreference = Stop und bricht bei einem fehlenden Pflichtpaket
+# mit throw ab. Hier soll das nur im Protokoll stehen - Konto und RDP sind
+# zu diesem Zeitpunkt schon eingerichtet und bleiben es.
+Write-Log "Starte Softwareinstallation (dauert 10 bis 20 Minuten)"
+$softwareSkript = 'C:\Windows\Temp\appstore-software.ps1'
+try {
+    [System.IO.File]::WriteAllBytes($softwareSkript, (Expand-Gzip '${software_gz}'))
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+        -NoProfile -ExecutionPolicy Bypass -File $softwareSkript *>&1 |
+        Out-File -Append -FilePath $logFile -Encoding utf8
+    Write-Log "Softwareinstallation beendet mit Code $LASTEXITCODE"
+} catch {
+    Write-Log "Softwareinstallation fehlgeschlagen: $($_.Exception.Message)"
 }
 
 # -----------------------------------------------------------------------------
@@ -235,3 +285,9 @@ Write-Log "fDenyTSConnections: $((Get-ItemProperty 'HKLM:\System\CurrentControlS
 Write-Log "TermService: $((Get-Service TermService).Status)"
 Write-Log "IPv4: $((Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' } | Select-Object -First 1).IPAddress)"
 Write-Log "=== Einrichtung beendet ==="
+
+# Ausdruecklich: ohne exit gilt der Erfolg des letzten Befehls, und den
+# bestimmt hier ein Protokollaufruf. cloudbase-init wertet den Code aus -
+# 1001 bis 1003 hiessen sogar "neu starten" bzw. "beim naechsten Start
+# erneut ausfuehren".
+exit 0

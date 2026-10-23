@@ -1,4 +1,3 @@
-
 ############################
 # Adresse, unter der die VM erreichbar ist
 ############################
@@ -57,6 +56,9 @@ output "user_accounts" {
       team     = local.all_users[i].team
     }
   } : {}
+
+  # Erst nach dem Warten auf cloudbase-init, siehe time_sleep in main.tofu.
+  depends_on = [time_sleep.wait_for_vm]
 }
 
 ############################
