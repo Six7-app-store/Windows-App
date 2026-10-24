@@ -79,8 +79,20 @@ locals {
 # ihre Regel jetzt selbst mit, wie die Kali-App, mit denselben
 # Campus-Praefixen. Eine IPv4-Regel laesst kein IPv6-Paket durch und
 # umgekehrt.
+#
+# Der Name braucht einen Zufallsanhang. Nova loest die Gruppen einer Instanz
+# ueber den Namen auf, auch wenn dort die ID steht. Gibt es den Namen zweimal
+# im Projekt (zweites Deployment, liegengebliebene Gruppe), scheitert jeder
+# Bauversuch mit "Multiple security groups found matching", und die VMs enden
+# in ERROR (Kali auf Staging, 24.10.2026).
+resource "random_string" "secgroup_suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
 resource "openstack_networking_secgroup_v2" "rdp" {
-  name        = "${local.app_name}-rdp"
+  name        = "${local.app_name}-rdp-${random_string.secgroup_suffix.result}"
   description = "RDP zu den Windows-VMs (${var.ip_mode})"
 }
 
