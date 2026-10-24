@@ -2,21 +2,23 @@
 # Adresse, unter der die VM erreichbar ist
 ############################
 
-# Die Nutzer-VMs haengen in einem doppelstapeligen Netz. Ihre IPv4-Adresse
-# stammt aus 10.200.0.0/19 und ist ausschliesslich projektintern - wer sie
-# einem Studierenden schickt, schickt ihm eine Adresse, unter der er nichts
-# erreicht. Oeffentlich erreichbar ist allein die IPv6-Adresse.
+# Im IPv6-Netz (ip_mode ipv6, Standard) stammt die IPv4-Adresse der VM aus
+# 10.200.0.0/19 und ist ausschliesslich projektintern - wer sie einem
+# Studierenden schickt, schickt ihm eine Adresse, unter der er nichts
+# erreicht. Oeffentlich erreichbar ist dort allein die IPv6-Adresse. Bei
+# ipv4 gilt die feste IPv4 im IPv4-Netz, bei dual die IPv4 der zweiten
+# Karte, weil sie mehr Heimnetze erreicht.
 #
-# Deshalb steht hier access_ip_v6 und nicht, wie bei der Ubuntu-App,
-# network[0].fixed_ip_v4.
-#
-# Die eckigen Klammern sind Absicht. Die Plattform setzt die Adresse als
-# "<ip>:<port>" zusammen; ohne Klammern entstuende daraus
+# Die eckigen Klammern um IPv6 sind Absicht. Die Plattform setzt die Adresse
+# als "<ip>:<port>" zusammen; ohne Klammern entstuende daraus
 # "2001:7c0:1b20:c913:1::3b1:3389", und niemand koennte sagen, wo die
 # Adresse aufhoert und der Port anfaengt. Mit Klammern ist es genau die
 # Form, die der RDP-Client erwartet:
 #
 #     mstsc /v:[2001:7c0:1b20:c913:1::3b1]:3389
+#
+# Genau ein Paar: access_ip_v6 liefert der Provider schon mit Klammern,
+# trim() macht das unabhaengig davon (sonst entstuende "[[...]]").
 #
 # Fehlt wider Erwarten eine IPv6-Adresse, faellt die Ausgabe auf IPv4
 # zurueck - dann ist die Adresse zwar nur intern brauchbar, aber besser als
@@ -24,11 +26,12 @@
 locals {
   vm_adressen = [
     for i in range(local.vm_count) :
-    local.enable_floating_ip
-    ? openstack_networking_floatingip_v2.fip[i].address
+    local.enable_floating_ip ? openstack_networking_floatingip_v2.fip[i].address
+    : var.ip_mode == "ipv4" ? openstack_compute_instance_v2.user_vm[i].network[0].fixed_ip_v4
+    : local.dual ? one([for ip in openstack_networking_port_v2.v4[i].all_fixed_ips : ip if !strcontains(ip, ":")])
     : (
       openstack_compute_instance_v2.user_vm[i].access_ip_v6 != ""
-      ? "[${openstack_compute_instance_v2.user_vm[i].access_ip_v6}]"
+      ? "[${trim(openstack_compute_instance_v2.user_vm[i].access_ip_v6, "[]")}]"
       : openstack_compute_instance_v2.user_vm[i].network[0].fixed_ip_v4
     )
   ]

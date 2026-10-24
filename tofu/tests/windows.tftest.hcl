@@ -16,6 +16,11 @@ mock_provider "openstack" {
       network      = { fixed_ip_v4 = "10.200.0.42" }
     }
   }
+  mock_resource "openstack_networking_port_v2" {
+    defaults = {
+      all_fixed_ips = ["141.72.10.7"]
+    }
+  }
 }
 
 mock_provider "random" {}
@@ -104,4 +109,93 @@ run "obergrenze" {
   }
 
   expect_failures = [terraform_data.user_limit]
+}
+
+# Der Provider liefert access_ip_v6 mit Klammern; es darf trotzdem nur ein
+# Paar entstehen.
+run "ipv6_mit_klammern_vom_provider" {
+  command = apply
+
+  override_resource {
+    target = openstack_compute_instance_v2.user_vm
+    values = {
+      access_ip_v6 = "[2001:db8::42]"
+    }
+  }
+
+  assert {
+    condition     = alltrue([for a in values(output.user_accounts) : a.ip == "[2001:db8::42]"])
+    error_message = "Die IPv6 muss genau einmal eingeklammert sein."
+  }
+}
+
+run "ipv6_ist_standard" {
+  command = apply
+
+  assert {
+    condition     = keys(openstack_networking_secgroup_rule_v2.rdp) == ["IPv6"]
+    error_message = "Ohne Auswahl gilt ipv6: eine RDP-Regel fuer IPv6."
+  }
+  assert {
+    condition     = alltrue([for vm in openstack_compute_instance_v2.user_vm : vm.network[0].uuid == "9b579624-d844-4df3-b38d-89978b31d37d"])
+    error_message = "ipv6 haengt die VMs ins IPv6-Netz."
+  }
+  assert {
+    condition     = length(openstack_compute_interface_attach_v2.v4) == 0
+    error_message = "ipv6 braucht keine zweite Karte."
+  }
+}
+
+run "zugang_ueber_ipv4" {
+  command = apply
+
+  variables {
+    ip_mode         = "ipv4"
+    network_v4_uuid = "00000000-0000-0000-0000-0000000000v4"
+  }
+
+  assert {
+    condition     = alltrue([for vm in openstack_compute_instance_v2.user_vm : vm.network[0].uuid == "00000000-0000-0000-0000-0000000000v4"])
+    error_message = "ipv4 muss die VMs ins IPv4-Netz haengen."
+  }
+  assert {
+    condition     = openstack_networking_secgroup_rule_v2.rdp["IPv4"].remote_ip_prefix == "141.72.0.0/16"
+    error_message = "RDP ueber IPv4 bleibt auf Campus und VPN beschraenkt."
+  }
+  assert {
+    condition     = alltrue([for a in values(output.user_accounts) : a.ip == "10.200.0.42"])
+    error_message = "Die Zugangsdaten muessen die feste IPv4 nennen, ohne Klammern."
+  }
+}
+
+run "dual_haengt_ipv4_als_zweite_karte_an" {
+  command = apply
+
+  variables {
+    ip_mode         = "dual"
+    network_v4_uuid = "00000000-0000-0000-0000-0000000000v4"
+  }
+
+  assert {
+    condition     = length(openstack_compute_interface_attach_v2.v4) == 3
+    error_message = "dual braucht je VM eine Karte im IPv4-Netz."
+  }
+  assert {
+    condition     = toset(keys(openstack_networking_secgroup_rule_v2.rdp)) == toset(["IPv4", "IPv6"])
+    error_message = "dual braucht RDP-Regeln fuer beide Familien."
+  }
+  assert {
+    condition     = alltrue([for a in values(output.user_accounts) : a.ip == "141.72.10.7"])
+    error_message = "Bei dual nennen die Zugangsdaten die IPv4 der zweiten Karte."
+  }
+}
+
+run "ipv4_ohne_netz_wird_abgelehnt" {
+  command = plan
+
+  variables {
+    ip_mode = "ipv4"
+  }
+
+  expect_failures = [openstack_compute_instance_v2.user_vm]
 }
