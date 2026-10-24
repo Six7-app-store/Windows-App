@@ -54,6 +54,50 @@ locals {
 }
 
 ############################
+# ADRESSFAMILIEN (var.ip_mode)
+############################
+
+locals {
+  ethertypes = {
+    ipv4 = ["IPv4"]
+    ipv6 = ["IPv6"]
+    dual = ["IPv4", "IPv6"]
+  }[var.ip_mode]
+
+  # Bei dual liegt die Hauptschnittstelle im IPv6-Netz, die oeffentliche IPv4
+  # kommt als zweite Karte dazu. Windows holt sich deren Adresse per DHCP
+  # und antwortet dank Strong-Host-Modell ueber die Karte, an der die Anfrage
+  # ankam - eine eigene Routing-Tabelle wie bei den Linux-Apps braucht es
+  # nicht.
+  primary_network_id = var.ip_mode == "ipv4" ? var.network_v4_uuid : var.network_uuid
+
+  dual = var.ip_mode == "dual"
+}
+
+# RDP je Adressfamilie. Bisher kam 3389 allein aus der gemeinsamen Gruppe
+# windows-app, die ausserhalb dieses Repos gepflegt wird. Die App bringt
+# ihre Regel jetzt selbst mit, wie die Kali-App, mit denselben
+# Campus-Praefixen. Eine IPv4-Regel laesst kein IPv6-Paket durch und
+# umgekehrt.
+resource "openstack_networking_secgroup_v2" "rdp" {
+  name        = "${local.app_name}-rdp"
+  description = "RDP zu den Windows-VMs (${var.ip_mode})"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "rdp" {
+  for_each = toset(local.ethertypes)
+
+  security_group_id = openstack_networking_secgroup_v2.rdp.id
+  direction         = "ingress"
+  ethertype         = each.key
+  protocol          = "tcp"
+  port_range_min    = local.login_port
+  port_range_max    = local.login_port
+  remote_ip_prefix  = each.key == "IPv4" ? var.rdp_source_cidr_v4 : var.rdp_source_cidr
+  description       = "RDP (${each.key})"
+}
+
+############################
 # USER MANAGEMENT (CONTRACT)
 ############################
 
@@ -156,7 +200,9 @@ resource "openstack_compute_instance_v2" "user_vm" {
   flavor_name = local.flavor
   key_pair    = local.key_pair != "" ? local.key_pair : null
 
-  security_groups = [var.shared_secgroup_id]
+  # Per ID: Nova nimmt beides an, ein Name ist aber nicht eindeutig, sobald
+  # ein zweites Deployment im Projekt eine gleichnamige Gruppe hat.
+  security_groups = [var.shared_secgroup_id, openstack_networking_secgroup_v2.rdp.id]
 
   # Windows braucht fuer den ersten Start deutlich laenger als Linux: das
   # 80-GB-Image wird aus dem Objektspeicher gelesen, danach laeuft die
@@ -166,8 +212,10 @@ resource "openstack_compute_instance_v2" "user_vm" {
     delete = "20m"
   }
 
+  # Nur die Hauptschnittstelle; die zweite bei dual haengt interface_attach
+  # unten an die laufende Instanz.
   network {
-    uuid = var.network_uuid
+    uuid = local.primary_network_id
   }
 
   # cloudbase-init statt cloud-init. Das Skript wird vom UserDataPlugin
@@ -192,7 +240,37 @@ resource "openstack_compute_instance_v2" "user_vm" {
     email = local.all_users[count.index].email
   })
 
-  depends_on = [terraform_data.user_limit]
+  depends_on = [terraform_data.user_limit, openstack_networking_secgroup_rule_v2.rdp]
+
+  lifecycle {
+    precondition {
+      condition     = var.ip_mode == "ipv6" || var.network_v4_uuid != ""
+      error_message = "ip_mode \"${var.ip_mode}\" braucht ein IPv4-Netz in network_v4_uuid."
+    }
+    precondition {
+      condition     = var.ip_mode == "ipv4" || var.network_uuid != ""
+      error_message = "ip_mode \"${var.ip_mode}\" braucht ein IPv6-Netz in network_uuid."
+    }
+  }
+}
+
+# Zweite Karte fuer dual: ein Port je VM im IPv4-Netz, an die laufende
+# Instanz gehaengt. Windows bezieht die Adresse selbst per DHCP.
+resource "openstack_networking_port_v2" "v4" {
+  count      = local.dual ? local.vm_count : 0
+  name       = "${local.app_name}-${local.usernames[count.index]}-v4"
+  network_id = var.network_v4_uuid
+
+  security_group_ids = [
+    var.shared_secgroup_id,
+    openstack_networking_secgroup_v2.rdp.id,
+  ]
+}
+
+resource "openstack_compute_interface_attach_v2" "v4" {
+  count       = local.dual ? local.vm_count : 0
+  instance_id = openstack_compute_instance_v2.user_vm[count.index].id
+  port_id     = openstack_networking_port_v2.v4[count.index].id
 }
 
 # -----------------------------------------------------------------------------
@@ -211,7 +289,7 @@ resource "openstack_networking_floatingip_v2" "fip" {
 # mehr): der Worker bricht ein Apply nach 30 Minuten ab, und das Anlegen der
 # Instanz selbst kann davon schon die Haelfte brauchen.
 resource "time_sleep" "wait_for_vm" {
-  depends_on      = [openstack_compute_instance_v2.user_vm]
+  depends_on      = [openstack_compute_instance_v2.user_vm, openstack_compute_interface_attach_v2.v4]
   create_duration = "300s"
 }
 

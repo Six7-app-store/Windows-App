@@ -94,9 +94,9 @@ dort *Remotedesktopbenutzer* und *Administratoren*.
 | VMs pro Team | — |
 | VMs pro Nutzer | **1** |
 | Flavor | `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
-| Netz | `DHBWV6` — doppelstapelig, IPv4 `10.200.0.0/19` und IPv6 |
-| Floating IP | Nein — die Instanz ist über ihre IPv6-Adresse direkt erreichbar |
-| Zugangsadresse | **IPv6, in eckigen Klammern** — `[2001:…]:3389` |
+| Netz | wählbar über `ip_mode`: IPv6 (Standard, `DHBWV6`), IPv4 oder beides |
+| Floating IP | Nein — die Instanz ist über ihre feste Adresse direkt erreichbar |
+| Zugangsadresse | bei `ipv6` **in eckigen Klammern** — `[2001:…]:3389`, sonst die IPv4 |
 
 Die `gp1`-Familie scheidet aus: das Basis-Image verlangt `min_disk` 64 GB,
 `gp1` liefert durchgehend 10 GB. `win11.medium` bootet außerdem ohne
@@ -108,16 +108,22 @@ zwischen „läuft" und „läuft nicht" ausmacht.
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
 | `image_name` | Windows-Basis-Image mit cloudbase-init (Standard `Windows 11 25H2 (UEFI)`) | Nein |
-| `network_uuid` | UUID des internen Netzwerks | Ja |
+| `ip_mode` | Adressfamilie: `ipv4`, `ipv6` oder `dual` (Standard `ipv6`) | Nein |
+| `network_uuid` | Netz mit öffentlicher IPv6, für `ipv6` und `dual` | Ja |
+| `network_v4_uuid` | Netz mit öffentlich gerouteter IPv4, für `ipv4` und `dual` | Nur bei `ipv4` und `dual` |
+| `rdp_source_cidr` | IPv6-Präfix für RDP (Standard `2001:7c0:1b20::/48`) | Nein |
+| `rdp_source_cidr_v4` | IPv4-Präfix für RDP (Standard `141.72.0.0/16`) | Nein |
 | `floating_ip_pool` | Name des External Networks für Floating IPs | Ja |
 | `shared_secgroup_id` | ID der gemeinsamen Security Group | Ja |
 | `max_users` | Obergrenze gleichzeitiger Nutzer-VMs (Standard 12) | Nein |
 
-> **Die voreingestellte Security Group heißt `windows-app`** und erlaubt TCP
-> 3389 (RDP für die Studierenden) aus `2001:7c0:1b20::/48` und
-> `141.72.0.0/16`, also aus dem Campusnetz. **Studierende brauchen damit das
-> DHBW-VPN.** Das ist Absicht: RDP mit Passwort-Anmeldung offen ins Internet
-> zu stellen, ist einer der meistgenutzten Angriffswege überhaupt.
+> **RDP ist nur aus dem Campusnetz erreichbar:** `2001:7c0:1b20::/48` und
+> `141.72.0.0/16`. **Studierende brauchen damit das DHBW-VPN.** Das ist
+> Absicht: RDP mit Passwort-Anmeldung offen ins Internet zu stellen, ist einer
+> der meistgenutzten Angriffswege überhaupt. Die Regel bringt die App seit
+> v2.1.0 selbst mit (`rdp_source_cidr`, `rdp_source_cidr_v4`), je gewählter
+> Adressfamilie. Die voreingestellte gemeinsame Security Group `windows-app`
+> erlaubt dieselben Präfixe.
 >
 > Die Gruppe gibt außerdem TCP 5986 (WinRM) frei. Das brauchte nur der
 > Packer-Build und kann raus; gepflegt wird die Gruppe außerhalb dieses
@@ -249,6 +255,15 @@ Auf der VM (über die OpenStack-Konsole oder per RDP):
 
 Der AppStore deployt nur Git-Tags im Format `v<Major>.<Minor>.<Patch>`.
 
+### v2.1.0
+
+Adressfamilie wählbar: `ip_mode` mit `ipv4`, `ipv6` oder `dual`. Bei `dual`
+bekommt jede VM eine zweite Karte im IPv4-Netz, deren Adresse Windows per
+DHCP bezieht. Eigene Security Group für RDP je Familie, mit den
+Campus-Präfixen der Gruppe `windows-app`. Die IPv6 in den Zugangsdaten stand
+in doppelten Klammern (`[[…]]`), weil der Provider sie schon eingeklammert
+liefert.
+
 ### v2.0.0
 
 Umstellung auf OpenTofu (ADR 0010): Ordner `tofu/` mit `.tofu`-Dateien,
@@ -256,9 +271,10 @@ kein Packer mehr. Software und Kursmaterial richtet das Startskript beim
 ersten Start ein. `image_name` ist jetzt eine Wizard-Variable mit dem
 Basis-Image als Standard, statt vom Worker gesetzt zu werden.
 
-## Warum die Ausgabe IPv6 liefert
+## Warum die Ausgabe bei `ipv6` die IPv6 liefert
 
-Die Nutzer-VMs hängen in einem doppelstapeligen Netz. Ihre IPv4-Adresse stammt
+Im Standard (`ip_mode = ipv6`) hängen die Nutzer-VMs in einem
+doppelstapeligen Netz. Ihre IPv4-Adresse stammt
 aus `10.200.0.0/19` und ist **ausschließlich projektintern** — wer sie einem
 Studierenden schickt, schickt ihm eine Adresse, unter der er nichts erreicht.
 Öffentlich erreichbar ist allein die IPv6-Adresse.
