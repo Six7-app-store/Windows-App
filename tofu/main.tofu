@@ -31,12 +31,8 @@ provider "openstack" {
 locals {
   app_name = "windows-user"
 
-  # Kleinster Flavor, der das Image traegt: das Glance-Image verlangt
-  # min_disk 64 GB und min_ram 4096 MB. Die gp1-Familie scheidet damit aus,
-  # sie hat durchgehend 10 GB Systemplatte. win11.medium liefert 2 vCPU,
-  # 8 GB RAM und 80 GB - und bootet ohne Cinder-Volume, was bei einem
-  # Ausfall des Volume-Dienstes den Unterschied macht.
-  flavor = "win11.medium"
+  # Waehlbar ueber var.flavor_name, nur unter den win-Flavors (siehe dort).
+  flavor = var.flavor_name
 
   # Kein Keypair: Windows meldet sich per RDP mit Benutzername und Passwort
   # an. Der oeffentliche Schluessel waere hier wirkungslos - das Image
