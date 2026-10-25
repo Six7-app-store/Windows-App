@@ -57,6 +57,29 @@ run "eine_vm_je_nutzer" {
   }
 }
 
+run "groessere_vm_waehlbar" {
+  command = plan
+
+  variables {
+    flavor_name = "win.largedisk"
+  }
+
+  assert {
+    condition     = alltrue([for vm in openstack_compute_instance_v2.user_vm : vm.flavor_name == "win.largedisk"])
+    error_message = "Der gewaehlte Flavor muss auf jeder Nutzer-VM ankommen."
+  }
+}
+
+run "zu_kleiner_flavor_wird_abgelehnt" {
+  command = plan
+
+  variables {
+    flavor_name = "gp1.small"
+  }
+
+  expect_failures = [var.flavor_name]
+}
+
 run "startskript" {
   command = apply
 

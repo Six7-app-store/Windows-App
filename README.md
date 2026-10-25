@@ -15,7 +15,7 @@ gelesen zu werden.
 | VMs | **1**, von allen geteilt | **1 pro Nutzer** |
 | Zugang | SSH, Port 22 | RDP, Port 3389 |
 | Provisionierung | cloud-init | cloudbase-init (PowerShell) |
-| Flavor | `gp1.small` | `win11.medium` |
+| Flavor | `gp1.small` | wählbar, Standard `win11.medium` |
 
 **Warum eine VM pro Nutzer?** Windows 11 ist ein Client-Betriebssystem und
 lässt nur eine interaktive Sitzung gleichzeitig zu. Auf einer geteilten VM
@@ -26,7 +26,9 @@ Konfigurationsfrage, sondern eine Lizenzbeschränkung von Windows Client.
 RAM-Kontingent von 128 GB sind das höchstens 16 VMs, und davon braucht das
 Projekt einen Teil für anderes. `max_users` steht deshalb auf **12** und bricht
 den Apply mit einer erklärenden Meldung ab, statt mitten im Anlegen an einem
-Quota-Fehler zu scheitern.
+Quota-Fehler zu scheitern. Die Rechnung gilt für den Standard-Flavor: mit
+`win.default` oder `win.largedisk` (16 GB RAM) passen bei demselben Kontingent
+nur halb so viele VMs, und OpenStack lehnt den Apply dann wegen der Quota ab.
 
 ## Software
 
@@ -93,7 +95,7 @@ dort *Remotedesktopbenutzer* und *Administratoren*.
 | VMs gesamt | **1 pro Nutzer** |
 | VMs pro Team | — |
 | VMs pro Nutzer | **1** |
-| Flavor | `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
+| Flavor | wählbar über `flavor_name`, Standard `win11.medium` (2 vCPU, 8 GB RAM, 80 GB) |
 | Netz | wählbar über `ip_mode`: IPv6 (Standard, `DHBWV6`), IPv4 oder beides |
 | Floating IP | Nein — die Instanz ist über ihre feste Adresse direkt erreichbar |
 | Zugangsadresse | bei `ipv6` **in eckigen Klammern** — `[2001:…]:3389`, sonst die IPv4 |
@@ -107,6 +109,7 @@ zwischen „läuft" und „läuft nicht" ausmacht.
 
 | Variable | Beschreibung | Pflicht |
 |---|---|---|
+| `flavor_name` | Größe jeder VM: `win11.medium` (2 vCPU, 8 GB RAM, 80 GB, Standard), `win.default` (2 vCPU, 16 GB RAM, 80 GB) oder `win.largedisk` (8 vCPU, 16 GB RAM, 120 GB) | Nein |
 | `image_name` | Windows-Basis-Image mit cloudbase-init (Standard `Windows 11 25H2 (UEFI)`) | Nein |
 | `ip_mode` | Adressfamilie: `ipv4`, `ipv6` oder `dual` (Standard `ipv6`) | Nein |
 | `network_uuid` | Netz mit öffentlicher IPv6, für `ipv6` und `dual` | Ja |

@@ -24,6 +24,23 @@ variable "image_name" {
   default     = "Windows 11 25H2 (UEFI)"
 }
 
+# Groesse jeder Nutzer-VM. Nur die win-Flavors tragen das Image: es verlangt
+# min_disk 64 GB und min_ram 4096 MB, die gp1-Familie hat durchgehend 10 GB
+# Systemplatte. Standard ist der kleinste, win11.medium (2 vCPU, 8 GB RAM,
+# 80 GB) - er bootet ohne Cinder-Volume, was bei einem Ausfall des
+# Volume-Dienstes den Unterschied macht. Die Liste unten wird im App Store
+# zur Auswahl; jede VM kostet das gewaehlte Kontingent einmal pro Nutzer.
+variable "flavor_name" {
+  description = "Größe jeder VM (CPU, Arbeitsspeicher, Systemplatte) @openstack:flavor:name"
+  type        = string
+  default     = "win11.medium"
+
+  validation {
+    condition     = contains(["win11.medium", "win.default", "win.largedisk"], var.flavor_name)
+    error_message = "flavor_name muss win11.medium, win.default oder win.largedisk sein - kleinere Flavors tragen das Windows-Image nicht."
+  }
+}
+
 #   ipv4  eine Karte im IPv4-Netz (network_v4_uuid)
 #   ipv6  eine Karte im IPv6-Netz (network_uuid) - Standard
 #   dual  IPv6-Netz als Hauptkarte, dazu eine zweite im IPv4-Netz
